@@ -1,0 +1,110 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace SignalTest
+{
+    class Constellation
+    {
+        public struct Point
+        {
+            public double I;
+            public double Q;
+
+            public Point(double i, double q)
+            {
+                I = i;
+                Q = q;
+            }
+        }
+
+
+        public int PointCount { get { return Points == null ? 0 : Points.Length; } }
+        public Point[] Points { get; private set; }
+
+
+        public Constellation()
+        {
+        }
+
+
+        public static Constellation CreateSquare(int pointsPerAxis)
+        {
+            double diffBetweenPoint = 2.0 / (pointsPerAxis - 1);
+            int totalPoints = pointsPerAxis * pointsPerAxis;
+            Point[] constPts = new Point[totalPoints];
+            int constIndex = 0;
+            for (int i = 0; i < pointsPerAxis; i++)
+            {
+                double valI = (i * diffBetweenPoint) - 1.0;
+                for (int q = 0; q < pointsPerAxis; q++, constIndex++)
+                {
+                    double valQ = (q * diffBetweenPoint) - 1.0;
+                    constPts[constIndex] = new Constellation.Point(valI, valQ);
+                }
+            }
+
+            Constellation constellation = new Constellation();
+            constellation.SetPoints(constPts);
+            return constellation;
+        }
+
+        public void SetPoints(Point[] points)
+        {
+            Points = points;
+        }
+
+        public Point FindNearestPoint(double i, double q)
+        {
+            Point nearest = default(Point);
+            double nearestDist = double.MaxValue;
+            double nearestI = 0;
+            double nearestQ = 0;
+
+            // Find closest I
+            for (int p = 0; p < Points.Length; p++)
+            {
+                double dist = Math.Abs(Points[p].I - i);
+                if (dist < nearestDist)
+                {
+                    nearestDist = dist;
+                    nearestI = Points[p].I;
+                }
+            }
+
+            nearestDist = double.MaxValue;
+            // Find closest Q
+            for (int p = 0; p < Points.Length; p++)
+            {
+                double dist = Math.Abs(Points[p].Q - q);
+                if (dist < nearestDist)
+                {
+                    nearestDist = dist;
+                    nearestQ = Points[p].Q;
+                }
+            }
+
+            return new Point(nearestI, nearestQ);
+
+            //for (int p = 0; p < Points.Length; p++)
+            //{
+            //    Point pt = Points[p];
+            //    double a = i - pt.I;
+            //    double b = q - pt.Q;
+
+            //    // We skip the square root here, as we are just doing a distance comparison
+            //    double dist = (a * a) + (b * b);
+
+            //    if (dist < nearestDist)
+            //    {
+            //        nearest = pt;
+            //        nearestDist = dist;
+            //    }
+            //}
+
+            return nearest;
+        }
+    }
+}

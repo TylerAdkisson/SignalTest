@@ -17,7 +17,7 @@ namespace SignalTest
 
         public Gardner(float baudRate)
         {
-            _piError = new Integrator(0.125f/*0.063f/2*/, 1f / (baudRate * 1f));
+            _piError = new Integrator(0.125f/4/*0.063f/2*/, 1f / (baudRate * 1f));
         }
 
 
@@ -44,7 +44,7 @@ namespace SignalTest
 
                     float preError = error;
                     error = _piError.Process(error);
-                    Console.WriteLine("E {0,7:F4} {1,8:F4}", error, preError);
+                    //Console.WriteLine("E {0,7:F4} {1,8:F4}", error, preError);
                     //_lastErr = error;
                 }
             }

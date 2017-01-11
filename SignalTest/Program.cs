@@ -25,8 +25,11 @@ namespace SignalTest
 
 
             // Tests for modularized objects
-            Costas3();
-            TimingRecovery();
+            //Costas3();
+            //TimingRecovery();
+
+            DecisionDirected();
+
 
             Const();
         }
@@ -834,7 +837,7 @@ namespace SignalTest
             float[] symbols32QAM = new float[] { -1f, -0.6f, -0.2f, 0.2f, 0.6f, 1f };
             float[] symbols64QAM = new float[] { -1f, -0.71f, -0.43f, -0.14f, 0.14f, 0.43f, 0.71f, 1f };
 
-            float[] symbols = symbolsPSK;
+            float[] symbols = symbols16QAM;
 
             using (Stream sOutput = File.Create(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_3_QPSK.pcm32f")))
             {
@@ -860,12 +863,12 @@ namespace SignalTest
                         else
                         {
                             // QPSK (4-QAM) 2-level signals
-                            bitI = symbols[r.Next(2)];
-                            bitQ = symbols[r.Next(2)];
+                            //bitI = symbols[r.Next(2)];
+                            //bitQ = symbols[r.Next(2)];
 
                             // 16-QAM 4-level signals
-                            //bitI = symbols[r.Next(4)];
-                            //bitQ = symbols[r.Next(4)];
+                            bitI = symbols[r.Next(4)];
+                            bitQ = symbols[r.Next(4)];
 
                             // 32-QAM (36-QAM technically here) 6-level signals
                             //bitI = symbols[r.Next(6)];
@@ -1250,8 +1253,8 @@ namespace SignalTest
         static void Const()
         {
             //byte[] data = File.ReadAllBytes(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "SignalTest_6_Timing_isolated.pcm32f"));
-            byte[] data = File.ReadAllBytes(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "SignalTest", "SignalTest_6_Timing.pcm32f"));
-            //byte[] data = File.ReadAllBytes(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "SignalTest", "SignalTest_1.pcm32f"));
+            //byte[] data = File.ReadAllBytes(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "SignalTest", "SignalTest_6_Timing.pcm32f"));
+            byte[] data = File.ReadAllBytes(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "SignalTest", "SignalTest_1.pcm32f"));
             float[] samples = new float[data.Length / 4];
             Buffer.BlockCopy(data, 0, samples, 0, data.Length);
 
@@ -1283,7 +1286,21 @@ namespace SignalTest
             //dc.DrawLine(new Pen(Brushes.Black, 1), new System.Windows.Point(width / 4, 0), new System.Windows.Point(width / 4, height));
             //dc.DrawLine(new Pen(Brushes.Black, 1), new System.Windows.Point(width * 0.75, 0), new System.Windows.Point(width * 0.75, height));
 
-            Brush dotBrush = new SolidColorBrush(Color.FromArgb(63, 0, 127, 255));
+            Constellation constellation = Constellation.CreateSquare(4);
+
+            //// 16-QAM/4-QAM: 0.5, width / 4
+            //// 64-QAM: 0.66, width / 6
+            //double innerWidth = width * 0.5;
+            //double innerHeight = height * 0.5;
+            //for (int i = 0; i < constellation.Points.Length; i++)
+            //{
+            //    Constellation.Point pt = constellation.Points[i];
+            //    double ptI = ((pt.I + 1) / 2);
+            //    double ptQ = ((pt.Q + 1) / 2);
+            //    dc.DrawEllipse(pointBrush, null, new System.Windows.Point((width / 4) + (ptI * innerWidth), (height / 4) + (ptQ * innerWidth)), 3, 3);
+            //}
+
+            Brush dotBrush = new SolidColorBrush(Color.FromArgb(127, 0, 127, 255));
 
             Random r = new Random(13);
 
@@ -1512,6 +1529,129 @@ namespace SignalTest
 
                         //fs.Write(BitConverter.GetBytes(sample), 0, 4);
                         //fs.Write(BitConverter.GetBytes(error), 0, 4);
+                    }
+                }
+            }
+        }
+
+        static void DecisionDirected()
+        {
+            int sampleRate = 44100;
+            float baud = 1400;
+            Vco carrier = new Vco(44100, 1355, 50);
+            RootRaisedCosineFilter rBitI = new RootRaisedCosineFilter(sampleRate, 5, baud, 0.4f);
+            RootRaisedCosineFilter rBitQ = new RootRaisedCosineFilter(sampleRate, 5, baud, 0.4f);
+            Downsampler ds = new Downsampler(sampleRate);
+            Downsampler dsQ = new Downsampler(sampleRate);
+            ds.SetRatio((baud * 2) / sampleRate);
+            dsQ.SetRatio((baud * 2) / sampleRate);
+            Gardner g = new Gardner(baud);
+            bool flipFlop = false;
+            // It appears that a lower (but not too low!) proportional gain improves performance
+            Integrator intAngle = new Integrator(0.1f, (1f / baud) * 5f);
+
+            float bitOutI = 0f;
+            float bitOutQ = 0f;
+
+            //   QPSK: 2
+            // 16-QAM: 4
+            // 64-QAM: 8
+            Constellation constellation = Constellation.CreateSquare(4);
+
+            using (Stream fs = File.Create(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_1.pcm32f")))
+            {
+                long sampleCount;
+                byte[] sampleBuffer = new byte[4 * 3];
+                string inputFile = "";
+                inputFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_3_QPSK_2.pcm32f");
+
+                using (Stream fsIn = File.OpenRead(inputFile))
+                {
+                    sampleCount = fsIn.Length / 4 / 1;
+
+                    for (int i = 0; i < sampleCount; i++)
+                    {
+                        fsIn.Read(sampleBuffer, 0, 4 * 1);
+                        float sample = BitConverter.ToSingle(sampleBuffer, 0);
+
+                        carrier.Next();
+
+                        // Demodulate I and Q samples
+                        float inphase = sample * (float)carrier.Cos();
+                        float quadrature = sample * -(float)carrier.Sin();
+
+                        float iFilter = rBitI.Process(inphase) / rBitI.DCGain;
+                        float qFilter = rBitQ.Process(quadrature) / rBitQ.DCGain;
+                        //iFilter *= 4.8f;
+                        //qFilter *= 4.8f;
+                        iFilter *= 4.5f;
+                        qFilter *= 4.5f;
+
+                        // Timing recovery
+                        dsQ.Next();
+                        if (ds.Next())
+                        {
+                            float sample2 = ds.GetSample();
+
+                            float error = g.Process(sample2);
+                            float ratio = ((baud * 16) / sampleRate) + (0.7f * error);
+                            Console.WriteLine("{0:F6} {1:F4} {2:F4}", (ratio / 8), sampleRate * (ratio / 16), carrier.GetFrequency(0));
+
+                            //if (outputCount < 670)
+                            {
+                                ds.SetRatio(ratio / 8f);
+                                dsQ.SetRatio(ratio / 8f);
+                            }
+
+                            if (flipFlop ^= true)
+                            {
+                                bitOutI = ds.GetSample();
+                                bitOutQ = dsQ.GetSample();
+                                fs.Write(BitConverter.GetBytes(bitOutI), 0, 4);
+                                fs.Write(BitConverter.GetBytes(bitOutQ), 0, 4);
+                                fs.Write(BitConverter.GetBytes(0f), 0, 4);
+                                fs.Write(BitConverter.GetBytes(0f), 0, 4);
+
+                                // Find the closest constellation point
+                                Constellation.Point constPt = constellation.FindNearestPoint(bitOutI, bitOutQ);
+                                Console.WriteLine("M {0,5:F2} {1,5:F2}", constPt.I, constPt.Q);
+
+                                double curAngle = Math.Atan2(bitOutQ, bitOutI);
+                                double constAngle = Math.Atan2(constPt.Q, constPt.I);
+
+                                if (Math.Sign(curAngle) == Math.Sign(constAngle))
+                                {
+                                    double angleDiff = (curAngle - constAngle) * 2;// / 3.1419526535897932384;
+                                    //if (i >= 2000)
+                                    //    angleDiff /= 2;
+
+                                    float angleFilter = intAngle.Process((float)angleDiff);
+                                    Console.WriteLine("A {0,5:F2} {1,5:F2}", angleDiff, angleFilter);
+
+                                    carrier.Tune(angleFilter);
+
+                                    //if (i % 10 == 0)
+                                    //{
+                                    //    //Console.WriteLine(carrier.GetFrequency(0));
+                                    //}
+                                }
+                                else
+                                {
+
+                                }
+                            }
+                        }
+                        ds.SupplyInput(iFilter);
+                        dsQ.SupplyInput(qFilter);
+
+                        //fs.Write(BitConverter.GetBytes(bitOutI), 0, 4);
+                        //fs.Write(BitConverter.GetBytes(bitOutQ), 0, 4);
+                        //fs.Write(BitConverter.GetBytes(iFilter2), 0, 4);
+                        //fs.Write(BitConverter.GetBytes(qFilter2), 0, 4);
+                        bitOutI = bitOutQ = 0f;
+                        //fs.Write(BitConverter.GetBytes(c.ErrorIntegral()), 0, 4);
+                        //fs.Write(BitConverter.GetBytes(c.Error()), 0, 4);
+                        ////fs.Write(BitConverter.GetBytes(c.IsLocked ? 1f : 0f), 0, 4);
                     }
                 }
             }

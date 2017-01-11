@@ -46,6 +46,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="BiQuadraticFilter.cs" />
+    <Compile Include="Constellation.cs" />
     <Compile Include="Costas.cs" />
     <Compile Include="Downsampler.cs" />
     <Compile Include="Gardner.cs" />
