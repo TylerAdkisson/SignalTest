@@ -28,9 +28,15 @@ namespace SignalTest
 
 
         public Integrator(float pGain, float iGain)
+            : this(pGain, iGain, 0f)
+        {
+        }
+
+        public Integrator(float pGain, float iGain, float preloadValue)
         {
             _iGain = iGain;
             _pGain = pGain;
+            Preload(preloadValue);
         }
 
 
@@ -40,6 +46,11 @@ namespace SignalTest
             float pTerm = sample * _pGain;
 
             return _lastValue = (pTerm + (_iState * _iGain));
+        }
+
+        public void Preload(float value)
+        {
+            _iState = (value / _iGain);
         }
 
         public float GetValue()

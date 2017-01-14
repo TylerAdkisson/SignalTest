@@ -17,7 +17,7 @@ namespace SignalTest
 
         public Gardner(float baudRate)
         {
-            _piError = new Integrator(0.125f/4/*0.063f/2*/, 1f / (baudRate * 1f));
+            _piError = new Integrator(0.03f/*0.125f/4*//*0.063f/2*/, 1f / (baudRate * 1f));
         }
 
 

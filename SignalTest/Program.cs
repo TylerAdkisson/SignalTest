@@ -1310,7 +1310,7 @@ namespace SignalTest
             for (int i = channelOffset; i < samples.Length; i += channels)
             {
                 //if (Math.Abs(samples[i]) > maxValue)
-                    maxValue += samples[i] * samples[i];
+                    maxValue += Math.Min(samples[i] * samples[i], 1.0f);
             }
             maxValue /= (samples.Length / channels);
             maxValue = Math.Sqrt(maxValue);
@@ -1319,7 +1319,7 @@ namespace SignalTest
             int sampleInt = 345;
             int sampleDiv = 10;
 
-            for (int i = (716 * channels) + channelOffset; i < samples.Length - (channels * 278); i += channels) // sampleCount += sampleInt, i = channels * (sampleCount / sampleDiv))
+            for (int i = (1330/*716*/ * channels) + channelOffset; i < samples.Length - (channels* 628/*278*/); i += channels) // sampleCount += sampleInt, i = channels * (sampleCount / sampleDiv))
             {
                 //if (Math.Abs(samples[i]) <= (maxValue * 0.05))
                 //    continue;
@@ -1549,14 +1549,22 @@ namespace SignalTest
             bool flipFlop = false;
             // It appears that a lower (but not too low!) proportional gain improves performance
             Integrator intAngle = new Integrator(0.1f, (1f / baud) * 5f);
+            Integrator intMagnitude = new Integrator(0.1f, (1f / baud) * 20f);
+            intMagnitude.Preload(1f);
+            //BiQuadraticFilter bandpass = new BiQuadraticFilter(BiQuadraticFilter.Type.LOWPASS, 5000, sampleRate, 0.707);
+            AGC agc = new AGC(0.707f, 20f);
 
             float bitOutI = 0f;
             float bitOutQ = 0f;
+
+            float constGain = 1f;
 
             //   QPSK: 2
             // 16-QAM: 4
             // 64-QAM: 8
             Constellation constellation = Constellation.CreateSquare(4);
+            Constellation constellationSync = Constellation.CreateSquare(2);
+            bool isSyncMode = true;
 
             using (Stream fs = File.Create(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_1.pcm32f")))
             {
@@ -1564,6 +1572,9 @@ namespace SignalTest
                 byte[] sampleBuffer = new byte[4 * 3];
                 string inputFile = "";
                 inputFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_3_QPSK_2.pcm32f");
+                //inputFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_4_qam16_mic.pcm32f");
+                //inputFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_4_qam16_mic_2.pcm32f");
+                //inputFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_4_qam16_mic_vary.pcm32f");
 
                 using (Stream fsIn = File.OpenRead(inputFile))
                 {
@@ -1573,6 +1584,13 @@ namespace SignalTest
                     {
                         fsIn.Read(sampleBuffer, 0, 4 * 1);
                         float sample = BitConverter.ToSingle(sampleBuffer, 0);
+                        //sample = (float)bandpass.filter(sample);
+                        //sample *= 2f;
+
+                        // Initial pre-processing AGC
+                        //sample = Math.Max(Math.Min(agc.Process(sample), 1f), -1f);
+                        //sample = agc.Process(sample);
+
 
                         carrier.Next();
 
@@ -1584,8 +1602,19 @@ namespace SignalTest
                         float qFilter = rBitQ.Process(quadrature) / rBitQ.DCGain;
                         //iFilter *= 4.8f;
                         //qFilter *= 4.8f;
-                        iFilter *= 4.5f;
-                        qFilter *= 4.5f;
+                        //iFilter *= 4.5f;
+                        //qFilter *= 4.5f;
+                        //iFilter *= constGain;
+                        //qFilter *= constGain;
+
+                        //agc.Process((Math.Abs(iFilter) + Math.Abs(qFilter)) / 2f);
+                        //agc.Process(Math.Max(Math.Abs(iFilter), Math.Abs(qFilter)));
+                        //iFilter *= Math.Min(agc.LastGain, 5);
+                        //qFilter *= Math.Min(agc.LastGain, 5);
+                        agc.ProcessDual(ref iFilter, ref qFilter);
+
+
+                        //agc.ProcessDual(ref iFilter, ref qFilter);
 
                         // Timing recovery
                         dsQ.Next();
@@ -1594,39 +1623,72 @@ namespace SignalTest
                             float sample2 = ds.GetSample();
 
                             float error = g.Process(sample2);
-                            float ratio = ((baud * 16) / sampleRate) + (0.7f * error);
-                            Console.WriteLine("{0:F6} {1:F4} {2:F4}", (ratio / 8), sampleRate * (ratio / 16), carrier.GetFrequency(0));
+                            float ratio = ((baud * 2) / sampleRate) + (0.0125f * error);
+                            Console.WriteLine("{0:F6} {1:F4} {2:F4}", ratio, sampleRate * ratio * 0.5f, carrier.GetFrequency(0));
 
                             //if (outputCount < 670)
                             {
-                                ds.SetRatio(ratio / 8f);
-                                dsQ.SetRatio(ratio / 8f);
+                                ds.SetRatio(ratio);
+                                dsQ.SetRatio(ratio);
                             }
 
                             if (flipFlop ^= true)
                             {
                                 bitOutI = ds.GetSample();
                                 bitOutQ = dsQ.GetSample();
+
+                                bitOutI *= constGain * 0.707f;
+                                bitOutQ *= constGain * 0.707f;
+
                                 fs.Write(BitConverter.GetBytes(bitOutI), 0, 4);
                                 fs.Write(BitConverter.GetBytes(bitOutQ), 0, 4);
                                 fs.Write(BitConverter.GetBytes(0f), 0, 4);
                                 fs.Write(BitConverter.GetBytes(0f), 0, 4);
 
                                 // Find the closest constellation point
-                                Constellation.Point constPt = constellation.FindNearestPoint(bitOutI, bitOutQ);
-                                Console.WriteLine("M {0,5:F2} {1,5:F2}", constPt.I, constPt.Q);
+                                Constellation.Point constPt;
+                                if (isSyncMode)
+                                    constPt = constellationSync.FindNearestPoint(bitOutI, bitOutQ);
+                                else
+                                    constPt = constellation.FindNearestPoint(bitOutI, bitOutQ);
+                                
+                                Console.WriteLine("C {0,5:F2} {1,5:F2}", constPt.I, constPt.Q);
+                                Console.WriteLine("G {0,5:F2}", agc.LastGain);
+
+                                //if (i >= 19000)
+                                //    Debugger.Break();
 
                                 double curAngle = Math.Atan2(bitOutQ, bitOutI);
                                 double constAngle = Math.Atan2(constPt.Q, constPt.I);
 
+                                double curMag = Math.Sqrt((bitOutI * bitOutI) + (bitOutQ * bitOutQ));
+                                double constMag = Math.Sqrt((constPt.I * constPt.I) + (constPt.Q * constPt.Q));
+
+                                constGain = intMagnitude.Process((float)(constMag - curMag) * 2f);
+                                //constGain = 1.5f;
+                                if (constGain > 3.5f)
+                                    constGain = 3.5f;
+
+
+                                curMag = Math.Sqrt((bitOutI * bitOutI) + (bitOutQ * bitOutQ));
+
+
+                                Console.WriteLine("M {0,5:F2} {1,5:F2} {2,5:F2}", curMag, constMag, constGain);
+
+
                                 if (Math.Sign(curAngle) == Math.Sign(constAngle))
                                 {
-                                    double angleDiff = (curAngle - constAngle) * 2;// / 3.1419526535897932384;
+                                    double angleDiff = (curAngle - constAngle) * 2.0f;// / 3.1419526535897932384;
                                     //if (i >= 2000)
                                     //    angleDiff /= 2;
 
+                                    // TODO: Add actual sync/preamble detector
+                                    if (isSyncMode && i >= 24000)
+                                        isSyncMode = false;
+
                                     float angleFilter = intAngle.Process((float)angleDiff);
                                     Console.WriteLine("A {0,5:F2} {1,5:F2}", angleDiff, angleFilter);
+                                    Console.WriteLine("S {0,5}", isSyncMode);
 
                                     carrier.Tune(angleFilter);
 
@@ -1644,10 +1706,10 @@ namespace SignalTest
                         ds.SupplyInput(iFilter);
                         dsQ.SupplyInput(qFilter);
 
-                        //fs.Write(BitConverter.GetBytes(bitOutI), 0, 4);
-                        //fs.Write(BitConverter.GetBytes(bitOutQ), 0, 4);
-                        //fs.Write(BitConverter.GetBytes(iFilter2), 0, 4);
-                        //fs.Write(BitConverter.GetBytes(qFilter2), 0, 4);
+                        //fs.Write(BitConverter.GetBytes(sample), 0, 4);
+                        //fs.Write(BitConverter.GetBytes((float)carrier.Cos()), 0, 4);
+                        //fs.Write(BitConverter.GetBytes(iFilter), 0, 4);
+                        //fs.Write(BitConverter.GetBytes(qFilter), 0, 4);
                         bitOutI = bitOutQ = 0f;
                         //fs.Write(BitConverter.GetBytes(c.ErrorIntegral()), 0, 4);
                         //fs.Write(BitConverter.GetBytes(c.Error()), 0, 4);
@@ -1883,227 +1945,6 @@ namespace SignalTest
         }
     }
 
-    public class Vco_
-    {
-        private struct State
-        {
-            public double Phase;
-            public double Multiplier;
-            public double PhaseOffset;
-        }
-
-        private const double TwoPi = 2 * Math.PI;
-        private int _sampleRate;
-        private double _span;
-        private double _baseFq;
-        private double _fq;
-        private State[] _states;
-
-
-        public Vco_(int sampleRate, double frequencyHz) : this(sampleRate, frequencyHz, 0)
-        {
-        }
-
-        public Vco_(int sampleRate, double frequencyHz, double spanHz)
-        {
-            _sampleRate = sampleRate;
-            _baseFq = _fq = TwoPi * frequencyHz / sampleRate;
-            _span = TwoPi * spanHz / sampleRate;
-
-            _states = new State[1];
-            _states[0] = new State()
-            {
-                Multiplier = 1.0,
-                Phase = 0.0
-            };
-        }
-
-
-        public void Reset()
-        {
-            for (int i = 0; i < _states.Length; i++)
-            {
-                _states[i].Phase = 0;
-            }
-        }
-
-        public void Next()
-        {
-            for (int i = 0; i < _states.Length; i++)
-            {
-                //_states[i].Phase -= _states[i].PhaseOffset;
-                _states[i].Phase += _fq * _states[i].Multiplier;
-                //_states[i].Phase += _states[i].PhaseOffset;
-
-                if (_states[i].Phase > TwoPi)
-                    _states[i].Phase -= TwoPi;
-            }
-        }
-
-        public double Sin(int phaseIndex = 0)
-        {
-            if (phaseIndex >= _states.Length || phaseIndex < 0)
-                throw new IndexOutOfRangeException("The specified phase index is out of range");
-
-            return Math.Sin(_states[phaseIndex].Phase);
-        }
-
-        public double Cos(int phaseIndex = 0)
-        {
-            if (phaseIndex >= _states.Length || phaseIndex < 0)
-                throw new IndexOutOfRangeException("The specified phase index is out of range");
-
-            return Math.Cos(_states[phaseIndex].Phase);
-        }
-
-        public double Square(int phaseIndex = 0)
-        {
-            if (phaseIndex >= _states.Length || phaseIndex < 0)
-                throw new IndexOutOfRangeException("The specified phase index is out of range");
-
-            return _states[phaseIndex].Phase > Math.PI ? 1.0 : -1.0;
-        }
-
-        public double SquareCos(int phaseIndex = 0)
-        {
-            if (phaseIndex >= _states.Length || phaseIndex < 0)
-                throw new IndexOutOfRangeException("The specified phase index is out of range");
-
-            double phase = _states[phaseIndex].Phase;
-            double halfPi = Math.PI / 2.0;
-            return (phase > Math.PI + halfPi || phase < Math.PI - halfPi) ? 1.0 : -1.0;
-        }
-        
-
-        public void Tune(double frequencyPercent)
-        {
-            if (_span == 0)
-                return;
-
-            _fq = _baseFq + (_span * frequencyPercent);
-            ContainSpan();
-        }
-
-        public void SetCenterFrequency(double frequencyHz)
-        {
-            _baseFq = _fq = TwoPi * frequencyHz / _sampleRate;
-        }
-
-        public void SetSpanWidth(double widthHz)
-        {
-            _span = TwoPi * widthHz / _sampleRate;
-        }
-
-        public int AddMultiplier(double multiplier)
-        {
-            State state = new State();
-            state.Multiplier = multiplier;
-            state.Phase = 0.0;
-
-            // Resize state array
-            State[] oldStates = _states;
-            _states = new State[_states.Length + 1];
-            Array.Copy(oldStates, _states, oldStates.Length);
-            _states[_states.Length - 1] = state;
-
-            return _states.Length - 1;
-        }
-
-        public void ChangeMultiplier(int phaseIndex, double multiplier)
-        {
-            if (phaseIndex >= _states.Length || phaseIndex < 0)
-                throw new IndexOutOfRangeException("The specified phase index is out of range");
-
-            _states[phaseIndex].Multiplier = multiplier;
-        }
-
-        public double GetFrequency(int phaseIndex = 0)
-        {
-            //(fq * sampleRate) / (Math.PI * 2)
-            if (phaseIndex >= _states.Length || phaseIndex < 0)
-                throw new IndexOutOfRangeException("The specified phase index is out of range");
-
-            return (_fq * _states[phaseIndex].Multiplier * _sampleRate) / TwoPi;
-        }
-
-        public void SetPhaseOffset(int phaseIndex, double offsetRadians)
-        {
-            if (phaseIndex >= _states.Length || phaseIndex < 0)
-                throw new IndexOutOfRangeException("The specified phase index is out of range");
-
-            _states[phaseIndex].PhaseOffset = offsetRadians;
-            _states[phaseIndex].Phase += offsetRadians;
-        }
-
-        private void ContainSpan()
-        {
-            if (_fq > _baseFq + _span)
-                _fq = _baseFq + _span;
-            else if (_fq < _baseFq - _span)
-                _fq = _baseFq - _span;
-        }
-    }
-
-    public class Osc2
-    {
-        private double _sampleRate;
-        private double _centerHz;
-        private double _pre;
-        private double _w;
-        private double _secondsPerSample;
-        private double _time;
-        private double _phase;
-        public double _fq;
-
-        public Osc2(double centerHz, int sampleRate)
-        {
-            _sampleRate = sampleRate;
-            _centerHz = centerHz;
-            _pre = 2 * Math.PI * centerHz;
-            _secondsPerSample = 1.0 / sampleRate;
-
-            _fq = _pre * _secondsPerSample;
-        }
-
-
-        public void Next()
-        {
-            //_w = _pre * (_time + _phase);
-            _w += _fq;// + (_phase / 44100.0);
-
-            //if (_w > 2 * Math.PI)
-            //    _w -= 2 * Math.PI;
-            _w %= (Math.PI * 2);
-
-            _time += _secondsPerSample;
-        }
-
-        public double Sin()
-        {
-            return Math.Sin(_w);
-        }
-
-        public double Cos()
-        {
-            return Math.Cos(_w);
-        }
-
-        public double Sqr()
-        {
-            return _w >= Math.PI ? -1.0 : 1.0;
-        }
-
-        public void Phase(double phase)
-        {
-            _phase = phase;
-        }
-
-        public void SetFrequency(double percent)
-        {
-
-        }
-    }
-
     public class Osc
     {
         public double baseFq; // Starting frequency
@@ -2233,125 +2074,6 @@ namespace SignalTest
                 fq = baseFq + spanFq;
             else if (fq < baseFq - spanFq)
                 fq = baseFq - spanFq;
-        }
-    }
-
-    public class Resampler_
-    {
-        private double _inputSampleRate;
-        private float[] _firBuffer;
-        private float _ratio;
-        private float _invRatio;
-        private float _lastSample;
-        private float _sampleCounter;
-        private bool _needsMoreInput;
-
-
-        public Resampler_(double inputSampleRate)
-        {
-            _inputSampleRate = inputSampleRate;
-            _firBuffer = new float[9];
-
-            _sampleCounter = 0f;
-            SetRatio(1f);
-        }
-
-
-        public void SupplyInput(float sample)
-        {
-            if (!_needsMoreInput)
-                return;
-
-            ShiftArrayLeft(_firBuffer, sample);
-            _needsMoreInput = false;
-        }
-
-        public bool Next()
-        {
-            if (_needsMoreInput)
-                return false;
-
-            bool returnVal = false;
-            if (_ratio < 1f)
-            {
-                //Console.WriteLine("{0:F4}", _sampleCounter);
-
-                if (_sampleCounter < 1f)
-                {
-                    float result = 0f;
-                    for (int i = 0; i < _firBuffer.Length; i++)
-                    {
-                        result += (float)(Sinc((i - (_firBuffer.Length / 2)) - (_sampleCounter - (int)_sampleCounter), 1.0) * _firBuffer[i]);
-                    }
-
-                    _lastSample = result;
-
-                    _sampleCounter += _invRatio;
-                    returnVal = true;
-                }
-                //else
-                {
-                    _sampleCounter--;
-                }
-
-
-
-                //// If the counter is 0 < x < 1, we need more input
-                //if (_sampleCounter == 0f || _sampleCounter >= 1f)
-                //{
-                //    _sampleCounter -= (int)_sampleCounter;
-                //    returnVal = true;
-                //}
-                ////else
-
-                //{
-                //    if (_sampleCounter == -1)
-                //        _sampleCounter = 0f;
-                //    else
-                //        _sampleCounter += _ratio;
-                //}
-            }
-            else
-            {
-                throw new NotImplementedException("Raising the sampling rate is currently not supported");
-            }
-
-            _needsMoreInput = !returnVal;
-            //Console.WriteLine(returnVal);
-
-            return returnVal;
-        }
-
-        public float GetSample()
-        {
-            return _lastSample;
-        }
-
-        public void SetRatio(float ratio)
-        {
-            _ratio = ratio;
-            _invRatio = 1f / _ratio;
-        }
-
-
-        private static double Sinc(double x, double scale)
-        {
-            if (scale == 0)
-                scale = 1;
-            if (x == 0)
-                return 1;
-
-            double phi = Math.PI / scale;
-            return Math.Sin(phi * x) / (phi * x);
-        }
-
-        private static void ShiftArrayLeft<T>(T[] array, T newValue)
-        {
-            for (int i = 1; i < array.Length; i++)
-            {
-                array[i - 1] = array[i];
-            }
-            array[array.Length - 1] = newValue;
         }
     }
 }
