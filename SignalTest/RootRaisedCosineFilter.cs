@@ -87,6 +87,11 @@ namespace SignalTest
             return result;
         }
 
+        public float[] DumpImpulseReponse()
+        {
+            return _impulseResponse;
+        }
+
 
         private void BuildImpulseResponse()
         {
@@ -97,6 +102,7 @@ namespace SignalTest
             float samplesPerSymbol = _sampleRate / _baudRate;
 
             float maxValue = 0f;
+            float invSqr = 1f / (float)Math.Sqrt(1f / _baudRate);
             for (int i = 0; i < _impulseResponse.Length; i++)
             {
                 float time = (i - _impulseResponse.Length / 2) / samplesPerSymbol;
@@ -116,7 +122,7 @@ namespace SignalTest
 
         private static float RRCStep(float symbolTime, float alpha)
         {
-            symbolTime += 0.000000001f;
+            symbolTime += 0.0000001f;
 
             //double symbolIndex = time / symbolLengthSeconds;
 

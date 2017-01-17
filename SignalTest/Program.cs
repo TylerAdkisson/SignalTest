@@ -810,42 +810,57 @@ namespace SignalTest
 
         static void GenerateQPSK()
         {
-            Vco vco = new Vco(44100, 1350);
+            int sampleRate = 44100;
+            Vco vco = new Vco(sampleRate, 1550);
             Random r = new Random(11);
             Random rNoise = new Random(27);
 
-            long sampleCount = 44100 * 3;
-            long preambleSamples = (long)(0.5 * 44100);
-            long postambleSamples = (long)(0.2 * 44100);
-            double baud = 1400;// 31.25;
-            long bitLengthSamples = (long)(44100.0 / baud); //(long)(0.0033 * 44100);
+            long totalSymbols = 3000;
+            long preambleSymbols = 500;
+            long postambleSymbols = 100;
+            long blankStartSymbols = 0;
+            double baud = 1200;// 31.25;
+            long bitLengthSamples = (long)(sampleRate / baud); //(long)(0.0033 * 44100);
+            float bitLengthSamplesFrac = sampleRate / (float)baud;
+            long sampleCount = (long)(bitLengthSamples * totalSymbols);
 
             float bitI = 0;
             float bitQ = 0;
 
             float lastBit = 0;
 
-            RootRaisedCosineFilter rBitI = new RootRaisedCosineFilter(44100, 5, (float)baud, 0.4f);
-            RootRaisedCosineFilter rBitQ = new RootRaisedCosineFilter(44100, 5, (float)baud, 0.4f);
+            RootRaisedCosineFilter rBitI = new RootRaisedCosineFilter(sampleRate, 5, (float)baud, 0.5f);
+            RootRaisedCosineFilter rBitQ = new RootRaisedCosineFilter(sampleRate, 5, (float)baud, 0.5f);
 
             //BiQuadraticFilter fBandpass = new BiQuadraticFilter(BiQuadraticFilter.Type.BANDPASS, 1400, 44100, 5);
 
             int ampDiv = 1;
+            int symbolsPerAxis = 4;
 
-            float[] symbolsPSK = new float[] { -1f, 1f };
-            float[] symbols16QAM = new float[] { -1f, -0.33f, 0.33f, 1f };
-            float[] symbols32QAM = new float[] { -1f, -0.6f, -0.2f, 0.2f, 0.6f, 1f };
-            float[] symbols64QAM = new float[] { -1f, -0.71f, -0.43f, -0.14f, 0.14f, 0.43f, 0.71f, 1f };
+            float[] symbols = new float[symbolsPerAxis];
 
-            float[] symbols = symbols16QAM;
+            float stepPerSymbol = 2f / (symbolsPerAxis - 1);
+            float step = -1f;
+            for (int i = 0; i < symbolsPerAxis; i++)
+            {
+                symbols[i] = step;
+                step += stepPerSymbol;
+            }
 
+            long symbolCount = 0;
+            double symbolCountFloat1 = 1;
             using (Stream sOutput = File.Create(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_3_QPSK.pcm32f")))
             {
                 for (int i = 0; i < sampleCount; i++)
                 {
-                    if (i % bitLengthSamples == 0)
+                    //if (i % bitLengthSamples == 0)
+                    if (symbolCountFloat1 >= 1)
                     {
-                        if (i <= preambleSamples)
+                        if (symbolCount <= blankStartSymbols)
+                        {
+                            bitI = bitQ = 0;
+                        }
+                        else if (symbolCount <= blankStartSymbols + preambleSymbols)
                         {
                             bitI = lastBit == symbols[0] ? symbols[symbols.Length-1] : symbols[0];
                             bitQ = bitI;
@@ -855,7 +870,7 @@ namespace SignalTest
                             //bitI = 1;
                             //bitQ = 0;
                         }
-                        else if (i >= sampleCount - postambleSamples)
+                        else if (symbolCount >= totalSymbols - postambleSymbols)
                         {
                             bitI = ampDiv;
                             bitQ = ampDiv;
@@ -867,23 +882,47 @@ namespace SignalTest
                             //bitQ = symbols[r.Next(2)];
 
                             // 16-QAM 4-level signals
-                            bitI = symbols[r.Next(4)];
-                            bitQ = symbols[r.Next(4)];
+                            //bitI = symbols[r.Next(4)];
+                            //bitQ = symbols[r.Next(4)];
 
-                            // 32-QAM (36-QAM technically here) 6-level signals
-                            //bitI = symbols[r.Next(6)];
-                            //bitQ = symbols[r.Next(6)];
+                            // 32-QAM 6-level signals
+                            // If the point results in a corner, re-roll
+                            //do
+                            //{
+                            //    bitI = symbols[r.Next(6)];
+                            //    bitQ = symbols[r.Next(6)];
+                            //} while (Math.Abs(bitI) == 1 && Math.Abs(bitQ) == 1);
 
                             // 64-QAM 8-level signals
                             //bitI = symbols[r.Next(8)];
                             //bitQ = symbols[r.Next(8)];
+
+                            // 128-QAM 12-level signals
+                            // If the point results in a corner, re-roll
+                            //do
+                            //{
+                            //    bitI = symbols[r.Next(12)];
+                            //    bitQ = symbols[r.Next(12)];
+                            //} while (Math.Abs(bitI) >= 0.80 && Math.Abs(bitQ) >= 0.80);
+
+                            // 256-QAM 16-level signals
+                            //bitI = symbols[r.Next(16)];
+                            //bitQ = symbols[r.Next(16)];
+
+                            // M-QAM (square) signals
+                            bitI = symbols[r.Next(symbolsPerAxis)];
+                            bitQ = symbols[r.Next(symbolsPerAxis)];
                         }
+                        symbolCount++;
+                        symbolCountFloat1 -= 1;
                     }
                     else
                     {
                         bitI = 0;
                         bitQ = 0;
                     }
+
+                    symbolCountFloat1 += 1.0 / bitLengthSamplesFrac;
 
                     vco.Next();
                     float sBitI = (float)rBitI.Process(bitI / ampDiv);
@@ -896,10 +935,10 @@ namespace SignalTest
                     float sampleOutput = (float)/*fBandpass.filter*/(sampleI + sampleQ);
 
                     sOutput.Write(BitConverter.GetBytes(sampleOutput), 0, 4);
-                    sOutput.Write(BitConverter.GetBytes(bitI / ampDiv), 0, 4);
-                    sOutput.Write(BitConverter.GetBytes(bitQ / ampDiv), 0, 4);
-                    //sOutput.Write(BitConverter.GetBytes((float)fBitI.filter(bitI)), 0, 4);
-                    //sOutput.Write(BitConverter.GetBytes((float)fBitQ.filter(bitQ)), 0, 4);
+                    //sOutput.Write(BitConverter.GetBytes(bitI / ampDiv), 0, 4);
+                    //sOutput.Write(BitConverter.GetBytes(bitQ / ampDiv), 0, 4);
+                    sOutput.Write(BitConverter.GetBytes(sBitI), 0, 4);
+                    sOutput.Write(BitConverter.GetBytes(sBitQ), 0, 4);
 
                     if (i % 1000 == 0)
                     {
@@ -1266,7 +1305,7 @@ namespace SignalTest
 
             dc.DrawRectangle(Brushes.White, null, new System.Windows.Rect(0, 0, width, height));
 
-            Brush pointBrush = new SolidColorBrush(Color.FromArgb(255, 0, 0, 0));
+            Brush pointBrush = new SolidColorBrush(Color.FromArgb(255, 127, 127, 127));
 
             // BPSK
             dc.DrawLine(new Pen(Brushes.Black, 1), new System.Windows.Point(width / 2, 0), new System.Windows.Point(width / 2, height));
@@ -1290,14 +1329,15 @@ namespace SignalTest
 
             //// 16-QAM/4-QAM: 0.5, width / 4
             //// 64-QAM: 0.66, width / 6
-            //double innerWidth = width * 0.5;
-            //double innerHeight = height * 0.5;
+            //double innerWidth = width * 0.707;
+            //double innerHeight = height * 0.707;
             //for (int i = 0; i < constellation.Points.Length; i++)
             //{
             //    Constellation.Point pt = constellation.Points[i];
-            //    double ptI = ((pt.I + 1) / 2);
-            //    double ptQ = ((pt.Q + 1) / 2);
-            //    dc.DrawEllipse(pointBrush, null, new System.Windows.Point((width / 4) + (ptI * innerWidth), (height / 4) + (ptQ * innerWidth)), 3, 3);
+            //    double ptI = pt.I * 0.707;
+            //    double ptQ = pt.Q * 0.707;
+            //    //dc.DrawEllipse(pointBrush, null, new System.Windows.Point((width / 4) + (ptI * innerWidth), (height / 4) + (ptQ * innerWidth)), 3, 3);
+            //    dc.DrawEllipse(pointBrush, null, new System.Windows.Point((width / 2) + ((width / 2) * ptI), (height / 2) + ((height / 2) * ptQ)), 3, 3);
             //}
 
             Brush dotBrush = new SolidColorBrush(Color.FromArgb(127, 0, 127, 255));
@@ -1318,14 +1358,23 @@ namespace SignalTest
             int sampleCount = 0;
             int sampleInt = 345;
             int sampleDiv = 10;
+            bool isLocked = false;
 
-            for (int i = (1330/*716*/ * channels) + channelOffset; i < samples.Length - (channels* 628/*278*/); i += channels) // sampleCount += sampleInt, i = channels * (sampleCount / sampleDiv))
+            for (int i = (/*1330*/ /*1330*/ /*500*/ 0 * channels) + channelOffset; i < samples.Length - (channels * 0 /*100*/ /*625*/ /*628*//*324*/); i += channels) // sampleCount += sampleInt, i = channels * (sampleCount / sampleDiv))
             {
                 //if (Math.Abs(samples[i]) <= (maxValue * 0.05))
                 //    continue;
 
-                double sample = samples[i] * (1.0 / maxValue);
-                double sample2 = samples[i+1] * (1.0 / maxValue);
+                double sample = samples[i];// * (1.0 / maxValue);
+                double sample2 = samples[i + 1];// * (1.0 / maxValue);
+                double err = samples[i + 2];
+                if (err < 0.1)
+                    isLocked = true;
+                else if (isLocked && err > 0.4)
+                    isLocked = false;
+
+                if (!isLocked)
+                    continue;
 
                 double x = (width / 2) * ((sample * 0.5));// + ((r.NextDouble() * 2 - 1) * 0.01));
                 //double y = x;
@@ -1360,7 +1409,7 @@ namespace SignalTest
             byte[] byteWorkingBuffer = new byte[4 * 3];
             double Es = 0.0f;
             double N0 = 0.0f;
-            double snrDb = 40f;
+            double snrDb = 12.0f;
             double snrLin = (float)Math.Pow(10, (snrDb / 10.0));
 
             using (Stream fsIn = File.OpenRead(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_3_QPSK.pcm32f")))
@@ -1537,10 +1586,10 @@ namespace SignalTest
         static void DecisionDirected()
         {
             int sampleRate = 44100;
-            float baud = 1400;
-            Vco carrier = new Vco(44100, 1355, 50);
-            RootRaisedCosineFilter rBitI = new RootRaisedCosineFilter(sampleRate, 5, baud, 0.4f);
-            RootRaisedCosineFilter rBitQ = new RootRaisedCosineFilter(sampleRate, 5, baud, 0.4f);
+            float baud = 1205f;// 2322;
+            Vco carrier = new Vco(sampleRate, 1555/*1560*/, 50);
+            RootRaisedCosineFilter rBitI = new RootRaisedCosineFilter(sampleRate, 5, baud, 0.5f);
+            RootRaisedCosineFilter rBitQ = new RootRaisedCosineFilter(sampleRate, 5, baud, 0.5f);
             Downsampler ds = new Downsampler(sampleRate);
             Downsampler dsQ = new Downsampler(sampleRate);
             ds.SetRatio((baud * 2) / sampleRate);
@@ -1552,168 +1601,240 @@ namespace SignalTest
             Integrator intMagnitude = new Integrator(0.1f, (1f / baud) * 20f);
             intMagnitude.Preload(1f);
             //BiQuadraticFilter bandpass = new BiQuadraticFilter(BiQuadraticFilter.Type.LOWPASS, 5000, sampleRate, 0.707);
-            AGC agc = new AGC(0.707f, 20f);
+            AGC agc = new AGC(0.707f, 15f);
 
             float bitOutI = 0f;
             float bitOutQ = 0f;
 
             float constGain = 1f;
 
-            //   QPSK: 2
-            // 16-QAM: 4
-            // 64-QAM: 8
+            //    QPSK: 2
+            //  16-QAM: 4
+            //  32-QAM: 6
+            //  64-QAM: 8
+            // 128-QAM: 12
+            // 256-QAM: 16
             Constellation constellation = Constellation.CreateSquare(4);
             Constellation constellationSync = Constellation.CreateSquare(2);
             bool isSyncMode = true;
 
+            double avgErr = 0f;
+            long symbolCount = 0;
+            float angleDiv = 1f;
+            float phaseAngleDiff = 0f;
+            float lastAngleDiff = 0f;
+            float lastLastAngleDiff = 0f;
+
             using (Stream fs = File.Create(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_1.pcm32f")))
             {
-                long sampleCount;
-                byte[] sampleBuffer = new byte[4 * 3];
-                string inputFile = "";
-                inputFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_3_QPSK_2.pcm32f");
-                //inputFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_4_qam16_mic.pcm32f");
-                //inputFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_4_qam16_mic_2.pcm32f");
-                //inputFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_4_qam16_mic_vary.pcm32f");
-
-                using (Stream fsIn = File.OpenRead(inputFile))
+                using (Stream fs2 = File.Create(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_1_full.pcm32f")))
                 {
-                    sampleCount = fsIn.Length / 4 / 1;
+                    long sampleCount;
+                    byte[] sampleBuffer = new byte[4 * 3];
+                    string inputFile = "";
+                    inputFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_3_QPSK_2.pcm32f");
+                    //inputFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_4_qam16_mic.pcm32f");
+                    //inputFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_4_qam16_mic_2.pcm32f");
+                    //inputFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_4_qam16_mic_vary.pcm32f");
 
-                    for (int i = 0; i < sampleCount; i++)
+                    using (Stream fsIn = File.OpenRead(inputFile))
                     {
-                        fsIn.Read(sampleBuffer, 0, 4 * 1);
-                        float sample = BitConverter.ToSingle(sampleBuffer, 0);
-                        //sample = (float)bandpass.filter(sample);
-                        //sample *= 2f;
+                        sampleCount = fsIn.Length / 4 / 1;
 
-                        // Initial pre-processing AGC
-                        //sample = Math.Max(Math.Min(agc.Process(sample), 1f), -1f);
-                        //sample = agc.Process(sample);
-
-
-                        carrier.Next();
-
-                        // Demodulate I and Q samples
-                        float inphase = sample * (float)carrier.Cos();
-                        float quadrature = sample * -(float)carrier.Sin();
-
-                        float iFilter = rBitI.Process(inphase) / rBitI.DCGain;
-                        float qFilter = rBitQ.Process(quadrature) / rBitQ.DCGain;
-                        //iFilter *= 4.8f;
-                        //qFilter *= 4.8f;
-                        //iFilter *= 4.5f;
-                        //qFilter *= 4.5f;
-                        //iFilter *= constGain;
-                        //qFilter *= constGain;
-
-                        //agc.Process((Math.Abs(iFilter) + Math.Abs(qFilter)) / 2f);
-                        //agc.Process(Math.Max(Math.Abs(iFilter), Math.Abs(qFilter)));
-                        //iFilter *= Math.Min(agc.LastGain, 5);
-                        //qFilter *= Math.Min(agc.LastGain, 5);
-                        agc.ProcessDual(ref iFilter, ref qFilter);
-
-
-                        //agc.ProcessDual(ref iFilter, ref qFilter);
-
-                        // Timing recovery
-                        dsQ.Next();
-                        if (ds.Next())
+                        for (int i = 0; i < sampleCount; i++)
                         {
-                            float sample2 = ds.GetSample();
+                            fsIn.Read(sampleBuffer, 0, 4 * 1);
+                            float sample = BitConverter.ToSingle(sampleBuffer, 0);
+                            //sample = (float)bandpass.filter(sample);
+                            //sample *= 2f;
 
-                            float error = g.Process(sample2);
-                            float ratio = ((baud * 2) / sampleRate) + (0.0125f * error);
-                            Console.WriteLine("{0:F6} {1:F4} {2:F4}", ratio, sampleRate * ratio * 0.5f, carrier.GetFrequency(0));
+                            // Initial pre-processing AGC
+                            //sample = Math.Max(Math.Min(agc.Process(sample), 1f), -1f);
+                            //sample = agc.Process(sample);
 
-                            //if (outputCount < 670)
+
+                            carrier.Next();
+
+                            // Demodulate I and Q samples
+                            float inphase = sample * (float)carrier.Cos();
+                            float quadrature = sample * -(float)carrier.Sin();
+
+                            float iFilter = rBitI.Process(inphase) / rBitI.DCGain;
+                            float qFilter = rBitQ.Process(quadrature) / rBitQ.DCGain;
+                            //iFilter *= 4.8f;
+                            //qFilter *= 4.8f;
+                            //iFilter *= 4.5f;
+                            //qFilter *= 4.5f;
+                            //iFilter *= 3.6f;
+                            //qFilter *= 3.6f;
+
+                            //agc.Process((Math.Abs(iFilter) + Math.Abs(qFilter)) / 2f);
+                            //agc.Process(Math.Max(Math.Abs(iFilter), Math.Abs(qFilter)));
+                            //iFilter *= Math.Min(agc.LastGain, 5);
+                            //qFilter *= Math.Min(agc.LastGain, 5);
+                            agc.ProcessDual(ref iFilter, ref qFilter);
+
+
+                            // Timing recovery
+                            dsQ.Next();
+                            if (ds.Next())
                             {
-                                ds.SetRatio(ratio);
-                                dsQ.SetRatio(ratio);
-                            }
+                                float sample2 = ds.GetSample();
 
-                            if (flipFlop ^= true)
-                            {
-                                bitOutI = ds.GetSample();
-                                bitOutQ = dsQ.GetSample();
+                                float error = g.Process(sample2);
+                                float ratio = ((baud * 2) / sampleRate) + (/*0.1373201673f*/ /*0.01625f*/ 0.00542f /*0.0325f*/ * error);
+                                ratio = Math.Max(ratio, 0.001f);
+                                Console.WriteLine("R {0:F6} {1,7:F2} {2,7:F2}", ratio, sampleRate * ratio * 0.5f, carrier.GetFrequency(0));
 
-                                bitOutI *= constGain * 0.707f;
-                                bitOutQ *= constGain * 0.707f;
-
-                                fs.Write(BitConverter.GetBytes(bitOutI), 0, 4);
-                                fs.Write(BitConverter.GetBytes(bitOutQ), 0, 4);
-                                fs.Write(BitConverter.GetBytes(0f), 0, 4);
-                                fs.Write(BitConverter.GetBytes(0f), 0, 4);
-
-                                // Find the closest constellation point
-                                Constellation.Point constPt;
-                                if (isSyncMode)
-                                    constPt = constellationSync.FindNearestPoint(bitOutI, bitOutQ);
-                                else
-                                    constPt = constellation.FindNearestPoint(bitOutI, bitOutQ);
-                                
-                                Console.WriteLine("C {0,5:F2} {1,5:F2}", constPt.I, constPt.Q);
-                                Console.WriteLine("G {0,5:F2}", agc.LastGain);
-
-                                //if (i >= 19000)
-                                //    Debugger.Break();
-
-                                double curAngle = Math.Atan2(bitOutQ, bitOutI);
-                                double constAngle = Math.Atan2(constPt.Q, constPt.I);
-
-                                double curMag = Math.Sqrt((bitOutI * bitOutI) + (bitOutQ * bitOutQ));
-                                double constMag = Math.Sqrt((constPt.I * constPt.I) + (constPt.Q * constPt.Q));
-
-                                constGain = intMagnitude.Process((float)(constMag - curMag) * 2f);
-                                //constGain = 1.5f;
-                                if (constGain > 3.5f)
-                                    constGain = 3.5f;
-
-
-                                curMag = Math.Sqrt((bitOutI * bitOutI) + (bitOutQ * bitOutQ));
-
-
-                                Console.WriteLine("M {0,5:F2} {1,5:F2} {2,5:F2}", curMag, constMag, constGain);
-
-
-                                if (Math.Sign(curAngle) == Math.Sign(constAngle))
+                                //if (outputCount < 670)
                                 {
-                                    double angleDiff = (curAngle - constAngle) * 2.0f;// / 3.1419526535897932384;
-                                    //if (i >= 2000)
-                                    //    angleDiff /= 2;
-
-                                    // TODO: Add actual sync/preamble detector
-                                    if (isSyncMode && i >= 24000)
-                                        isSyncMode = false;
-
-                                    float angleFilter = intAngle.Process((float)angleDiff);
-                                    Console.WriteLine("A {0,5:F2} {1,5:F2}", angleDiff, angleFilter);
-                                    Console.WriteLine("S {0,5}", isSyncMode);
-
-                                    carrier.Tune(angleFilter);
-
-                                    //if (i % 10 == 0)
-                                    //{
-                                    //    //Console.WriteLine(carrier.GetFrequency(0));
-                                    //}
+                                    ds.SetRatio(ratio);
+                                    dsQ.SetRatio(ratio);
                                 }
-                                else
-                                {
 
+                                if (flipFlop ^= true)
+                                {
+                                    bitOutI = ds.GetSample();
+                                    bitOutQ = dsQ.GetSample();
+
+                                    bitOutI *= constGain * 0.707f;
+                                    bitOutQ *= constGain * 0.707f;
+
+                                    fs.Write(BitConverter.GetBytes(bitOutI), 0, 4);
+                                    fs.Write(BitConverter.GetBytes(bitOutQ), 0, 4);
+                                    fs.Write(BitConverter.GetBytes((float)avgErr), 0, 4);
+                                    //fs.Write(BitConverter.GetBytes(agc.AverageAmplitude), 0, 4);
+                                    //fs.Write(BitConverter.GetBytes(isSyncMode ? 0f : 0.707f), 0, 4);
+                                    fs.Write(BitConverter.GetBytes(phaseAngleDiff), 0, 4);
+
+
+                                    // Find the closest constellation point
+                                    Constellation.Point constPt;
+                                    if (isSyncMode)
+                                        constPt = constellationSync.FindNearestPoint(bitOutI, bitOutQ);
+                                    else
+                                        constPt = constellation.FindNearestPoint(bitOutI, bitOutQ);
+
+                                    Console.WriteLine("C {0,5:F2} {1,5:F2}", constPt.I, constPt.Q);
+                                    Console.WriteLine("G {0,5:F2}", agc.LastGain);
+
+                                    //if (i >= 19000)
+                                    //    Debugger.Break();
+
+                                    double curAngle = Math.Atan2(bitOutQ, bitOutI);
+                                    double constAngle = Math.Atan2(constPt.Q, constPt.I);
+
+                                    double curMag = Math.Sqrt((bitOutI * bitOutI) + (bitOutQ * bitOutQ));
+                                    double constMag = Math.Sqrt((constPt.I * constPt.I) + (constPt.Q * constPt.Q));
+                                    double magDiff = (constMag - curMag) * 1f;
+                                    //magDiff -= (magDiff < 0 ? -1f : 1f) * ((magDiff * magDiff) / 1f);
+
+
+                                    constGain = intMagnitude.Process((float)(magDiff));
+                                    //constGain = 1.25f;
+                                    if (constGain < 0.01f)
+                                        constGain = 0.01f;
+                                    if (constGain > 2.0f)
+                                        constGain = 2.0f;
+                                    
+
+                                    curMag = Math.Sqrt((bitOutI * bitOutI) + (bitOutQ * bitOutQ));
+                                    Console.WriteLine("M {0,5:F2} {1,5:F2} {2,5:F2}", curMag, constMag, constGain);
+
+                                    // Symbol error rate
+                                    double distI = (bitOutI - constPt.I);
+                                    double distQ = (bitOutQ - constPt.Q);
+                                    double distance = Math.Sqrt((distI * distI) + (distQ * distQ));
+
+                                    avgErr = (avgErr * 0.95) + (distance * 0.05);
+                                    Console.WriteLine("E {0,7:F4} {1,7:F4}", distance, avgErr);
+
+                                    if (Math.Sign(curAngle) == Math.Sign(constAngle))
+                                    {
+                                        double angleDiff = (curAngle - constAngle) * 1f;// / 3.1419526535897932384;
+
+                                        double angleDiffDiff = angleDiff - lastAngleDiff;
+                                        //double lastAngleDiffDiff = lastAngleDiff - lastLastAngleDiff;
+
+                                        //if (angleDiffDiff > 1.2f)
+                                        //    angleDiffDiff -= 1.57079632f;
+                                        //if (angleDiffDiff < 1.3f)
+                                        //    angleDiffDiff += 1.57079632f;
+
+                                        // Correct for phase angle polarity swaps
+                                        if (Math.Abs(angleDiffDiff) > 0.5f && Math.Sign(angleDiffDiff) != Math.Sign(lastLastAngleDiff))
+                                            angleDiffDiff += 1.57079632f * Math.Sign(lastAngleDiff);
+
+                                        //if ((angleDiffDiff - lastAngleDiffDiff) > 1.3f)
+                                        //    angleDiffDiff -= 1.57079632f;
+
+                                        phaseAngleDiff = (float)angleDiff / 3.1415926535897932384f;
+
+
+                                        //angleDiffDiff *= 1.5f;
+                                        //angleDiffDiffCounter += (float)angleDiffDiff;
+                                        //diffCount++;
+                                        lastLastAngleDiff = (float)angleDiffDiff;
+                                        lastAngleDiff = (float)angleDiff;
+                                        //angleDiff -= (angleDiff < 0 ? -1f : 1f) * ((angleDiff * angleDiff) / 3f);
+                                        //angleDiff = Math.Min(Math.Max(angleDiff, -0.25f), 0.25f);
+                                        //if (i >= 2000)
+                                        //    angleDiff /= 2;
+
+                                        // TODO: Add actual sync/preamble detector
+                                        //if (isSyncMode && symbolCount >= 400)
+                                        if (isSyncMode && symbolCount > 10 && avgErr < 0.1f)
+                                        //if (isSyncMode && i >= 30000)
+                                        {
+                                            isSyncMode = false;
+                                            agc.AdaptGain = false;
+                                        }
+                                        //if (sampleCount >= 500)
+                                        //    angleDiff /= 2f;
+
+                                        //phaseAngleDiff = (float)angleDiff / 3.1415926535897932384f;
+                                        //phaseAngleDiff = (float)angleDiffDiff;
+
+
+                                        // NOTE: It appears the divisor on angleDiff should be higher for lower baud rates?
+                                        // Actually, it seems to not have a linear relation to baud rate
+                                        float phaseError = (float)angleDiffDiff + (float)angleDiff/1f;
+
+                                        float angleFilter = intAngle.Process((float)phaseError);
+
+                                        //angleFilter += (float)(rTest.NextDouble() * 2 - 1) * 5f;
+
+                                        Console.WriteLine("A {0,5:F2} {1,5:F2} {2,9:F6}", angleDiff, angleFilter, angleDiffDiff);
+                                        Console.WriteLine("S {0,5} {1,9:N0}", isSyncMode, symbolCount);
+
+                                        carrier.Tune(angleFilter);
+                                        //carrier.SetCenterFrequency(angleFilter);
+                                        
+
+                                        //if (i % 10 == 0)
+                                        //{
+                                        //    //Console.WriteLine(carrier.GetFrequency(0));
+                                        //}
+                                    }
+                                    else
+                                    {
+
+                                    }
+                                    symbolCount++;
                                 }
                             }
+                            ds.SupplyInput(iFilter);
+                            dsQ.SupplyInput(qFilter);
+
+                            fs2.Write(BitConverter.GetBytes(sample), 0, 4);
+                            fs2.Write(BitConverter.GetBytes(agc.AverageAmplitude), 0, 4);
+                            fs2.Write(BitConverter.GetBytes(iFilter), 0, 4);
+                            fs2.Write(BitConverter.GetBytes(qFilter), 0, 4);
+                            bitOutI = bitOutQ = 0f;
+                            //fs.Write(BitConverter.GetBytes(c.ErrorIntegral()), 0, 4);
+                            //fs.Write(BitConverter.GetBytes(c.Error()), 0, 4);
+                            ////fs.Write(BitConverter.GetBytes(c.IsLocked ? 1f : 0f), 0, 4);
                         }
-                        ds.SupplyInput(iFilter);
-                        dsQ.SupplyInput(qFilter);
-
-                        //fs.Write(BitConverter.GetBytes(sample), 0, 4);
-                        //fs.Write(BitConverter.GetBytes((float)carrier.Cos()), 0, 4);
-                        //fs.Write(BitConverter.GetBytes(iFilter), 0, 4);
-                        //fs.Write(BitConverter.GetBytes(qFilter), 0, 4);
-                        bitOutI = bitOutQ = 0f;
-                        //fs.Write(BitConverter.GetBytes(c.ErrorIntegral()), 0, 4);
-                        //fs.Write(BitConverter.GetBytes(c.Error()), 0, 4);
-                        ////fs.Write(BitConverter.GetBytes(c.IsLocked ? 1f : 0f), 0, 4);
                     }
                 }
             }

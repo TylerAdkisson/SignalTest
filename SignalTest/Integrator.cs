@@ -17,7 +17,13 @@ namespace SignalTest
         public float IntegratorGain
         {
             get { return _iGain; }
-            set { _iGain = value; }
+            set
+            {
+                // Adjust existing state value so output doesn't change
+                _iState = (_iState * _iGain) / value;
+
+                _iGain = value;
+            }
         }
 
         public float ProportionalGain

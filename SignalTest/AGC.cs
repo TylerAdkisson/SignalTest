@@ -11,9 +11,12 @@ namespace SignalTest
         private float _state;
         private float _targetAmp;
         private float _maxGain;
-        //private float[] _samples;
-        //private int _sampleIndex;
-        //private int _sampleCount;
+        private float[] _samples;
+        private int _sampleIndex;
+        private int _sampleCount;
+        private bool _isAdaptAllowed;
+        private Integrator _gainIntegrator;
+        private float _gain;
 
 
         public float TargetAmplitude
@@ -22,14 +25,27 @@ namespace SignalTest
             set { _targetAmp = value; }
         }
 
+        public bool AdaptGain
+        {
+            get { return _isAdaptAllowed; }
+            set
+            {
+                _isAdaptAllowed = value;
+                if (!value)
+                    _gainIntegrator.IntegratorGain = (1f / 44100f) * 10f;
+                else
+                    _gainIntegrator.IntegratorGain = (1f / 44100f) * 1500f;
+            }
+        }
+
         public float LastGain
         {
-            get { return Math.Min(_targetAmp / _state, _maxGain); }
+            get { return Math.Min(_gain, _maxGain); }
         }
 
         public float AverageAmplitude
         {
-            get { return _state; }
+            get { return _state / _sampleCount; }
         }
 
         public float MaximumGain
@@ -48,6 +64,13 @@ namespace SignalTest
         {
             _targetAmp = targetAmplitude;
             _maxGain = maxGain;
+            _state = 0f;
+            _samples = new float[200];
+            _isAdaptAllowed = true;
+
+            _gainIntegrator = new Integrator(1f, (1f / 44100f) * 1500f);
+            _gainIntegrator.Preload(1.0f);
+            _gain = 1.0f;
         }
 
 
@@ -74,29 +97,68 @@ namespace SignalTest
 
         public void ProcessDual(ref float value1, ref float value2)
         {
-            float avgVol = Math.Max(Math.Abs(value1), Math.Abs(value2));
-            if (_state == 0.0f)
-                _state = avgVol;
+            //float avgVol = Math.Max(Math.Abs(value1), Math.Abs(value2));
+            //avgVol = (Math.Abs(value1) + Math.Abs(value2)) / 2f;
 
-            _state = (_state * 0.9995f) + (avgVol * 0.0005f);
+            //_state = (_state * 0.9995f) + (avgVol * 0.0005f);
 
-            value1 *= Math.Min(_targetAmp / _state, _maxGain);
-            value2 *= Math.Min(_targetAmp / _state, _maxGain);
+
+
+
+            //float avgAmplitude = _state / _sampleCount;
+
+            //float gain = _gainIntegrator.Process(Math.Min(_targetAmp / avgAmplitude, _maxGain));
+
+            //value1 *= Math.Min(gain, _maxGain);
+            //value2 *= Math.Min(gain, _maxGain);
+
+            //float postVol = Math.Max(Math.Abs(value1), Math.Abs(value2));
+
+            //_stateShort = (_stateShort * 0.80f) + (postVol * 0.20f);
+
 
             //value1 = Math.Max(-1.0f, Math.Min(value1, 1.0f));
             //value2 = Math.Max(-1.0f, Math.Min(value2, 1.0f));
+
+
+
+            // Apply gain
+            value1 *= _gain;
+            value2 *= _gain;
+
+            // Compute average output volume
+            //float outputVol = Math.Max(Math.Abs(value1), Math.Abs(value2));
+            float outputVol = (Math.Abs(value1) + Math.Abs(value2)) / 2f;
+
+            if (_sampleCount > 0)
+                _state -= _samples[(_sampleIndex + 1) == _samples.Length ? 0 : (_sampleIndex + 1)];
+
+            InsertSample(outputVol);
+
+            _state += outputVol;
+
+            outputVol = (float)/*Math.Sqrt*/(_state / _sampleCount);
+
+            //_state = (_state * 0.9995f) + ((outputVol * outputVol) * 0.0005f);
+            //outputVol = (float)Math.Sqrt(_state);
+
+            // Adjust gain with error value
+            float error = _targetAmp - outputVol;
+
+            if (_isAdaptAllowed)
+                _gain = _gainIntegrator.Process(error);
         }
 
 
-        //private void InsertSample(float value)
-        //{
-        //    _samples[_sampleIndex] = value;
-        //    _sampleIndex++;
-        //    if (_sampleIndex == _samples.Length)
-        //        _sampleIndex = 0;
+        private void InsertSample(float value)
+        {
+            _samples[_sampleIndex] = value;
+            _sampleIndex++;
+            if (_sampleIndex == _samples.Length)
+                _sampleIndex = 0;
 
-        //    if (_sampleCount < _samples.Length)
-        //        _sampleCount++;
-        //}
+            if (_sampleCount < _samples.Length)
+                _sampleCount++;
+        }
     }
 }
