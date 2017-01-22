@@ -8,7 +8,6 @@ namespace SignalTest
 {
     class Gardner
     {
-        private Integrator _piError;
         private bool _flipFlop;
         private float _prevSample;
         private float _currentSample;
@@ -17,11 +16,9 @@ namespace SignalTest
 
         public Gardner(float baudRate)
         {
-            _piError = new Integrator(0.03f/*0.125f/4*//*0.063f/2*/, 1f / (baudRate * 1f));
         }
 
 
-        //private float _lastErr;
         public float Process(float sample)
         {
             // Shift symbol samples over
@@ -42,16 +39,11 @@ namespace SignalTest
                         error = -error;
                     }
 
-                    float preError = error;
-                    error = _piError.Process(error);
-                    //Console.WriteLine("E {0,7:F4} {1,8:F4}", error, preError);
-                    //_lastErr = error;
+                    return error;
                 }
             }
-            //_flipFlop ^= true;
 
-            //return _lastErr;
-            return _piError.GetValue();
+            return 0;
         }
     }
 }

@@ -73,7 +73,8 @@ namespace SignalTest
             float result = 0;
             for (int i = 0; i < _impulseResponse.Length; i++)
             {
-                result += _buffer[i] * _impulseResponse[i];
+                if (_buffer[i] != 0)
+                    result += _buffer[i] * _impulseResponse[i];
             }
 
             if (_clip)
@@ -107,6 +108,7 @@ namespace SignalTest
             {
                 float time = (i - _impulseResponse.Length / 2) / samplesPerSymbol;
                 _impulseResponse[i] = RRCStep(time, _alpha);
+                _impulseResponse[i] *= (float)WelchWindow(i, _impulseResponse.Length);
                 maxValue = Math.Max(maxValue, _impulseResponse[i]);
             }
 
@@ -141,6 +143,16 @@ namespace SignalTest
                 array[i - 1] = array[i];
             }
             array[array.Length - 1] = newValue;
+        }
+
+        private static double WelchWindow(int index, int length)
+        {
+            return 1.0 - Math.Pow(((index - (length - 1) / 2.0)) / ((length - 1) / 2.0), 2);
+        }
+
+        private static double HannWindow(int index, int length)
+        {
+            return 0.5 * (1.0 - Math.Cos((2*Math.PI * index) / (length - 1)));
         }
     }
 }

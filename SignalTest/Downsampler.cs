@@ -44,17 +44,21 @@ namespace SignalTest
                 return false;
 
             bool returnVal = false;
-            if (_ratio < 1f)
+            if (_ratio <= 1f)
             {
                 //Console.WriteLine("{0:F4}", _sampleCounter);
 
                 if (_sampleCounter < 1f)
                 {
                     float result = 0f;
-                    for (int i = 0; i < _firBuffer.Length; i++)
-                    {
-                        result += (float)(Sinc((i - (_firBuffer.Length / 2)) - (_sampleCounter - (int)_sampleCounter), 1.0) * _firBuffer[i]);
-                    }
+                    //for (int i = 0; i < _firBuffer.Length; i++)
+                    //{
+                    //    result += (float)(Sinc((i - (_firBuffer.Length / 2)) - (_sampleCounter - (int)_sampleCounter), 1.0) * _firBuffer[i]);
+                    //}
+
+                    // Linear decimation seems to perform better than the sinc-based decimation from above
+                    float dist = (_sampleCounter - (int)_sampleCounter);
+                    result = (_firBuffer[_firBuffer.Length - 2] * (1f - dist)) + (_firBuffer[_firBuffer.Length - 1] * dist);
 
                     _lastSample = result;
 
