@@ -42,7 +42,7 @@ namespace SignalTest
         {
             _iGain = iGain;
             _pGain = pGain;
-            Preload(preloadValue);
+            SetValue(preloadValue);
         }
 
 
@@ -54,10 +54,6 @@ namespace SignalTest
             return _lastValue = (pTerm + (_iState * _iGain));
         }
 
-        public void Preload(float value)
-        {
-            _iState = (value / _iGain);
-        }
 
         public float GetValue()
         {
@@ -72,6 +68,11 @@ namespace SignalTest
         public void SetValue(float value)
         {
             _iState = (value / _iGain);
+        }
+
+        public void Reset()
+        {
+            _iState = 0f;
         }
     }
 }

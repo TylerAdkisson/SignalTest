@@ -14,15 +14,12 @@ namespace SignalTest
         private float _invRatio;
         private float _lastSample;
         private float _sampleCounter;
-        private bool _needsMoreInput;
 
 
         public Downsampler(double inputSampleRate)
         {
             _inputSampleRate = inputSampleRate;
             _firBuffer = new float[9];
-
-            _needsMoreInput = true;
 
             _sampleCounter = 0f;
             SetRatio(1f);
@@ -31,69 +28,33 @@ namespace SignalTest
 
         public void SupplyInput(float sample)
         {
-            if (!_needsMoreInput)
-                return;
-
             ShiftArrayLeft(_firBuffer, sample);
-            _needsMoreInput = false;
         }
 
         public bool Next()
         {
-            if (_needsMoreInput)
-                return false;
-
             bool returnVal = false;
             if (_ratio <= 1f)
             {
-                //Console.WriteLine("{0:F4}", _sampleCounter);
-
                 if (_sampleCounter < 1f)
                 {
                     float result = 0f;
-                    //for (int i = 0; i < _firBuffer.Length; i++)
-                    //{
-                    //    result += (float)(Sinc((i - (_firBuffer.Length / 2)) - (_sampleCounter - (int)_sampleCounter), 1.0) * _firBuffer[i]);
-                    //}
-
-                    // Linear decimation seems to perform better than the sinc-based decimation from above
-                    float dist = (_sampleCounter - (int)_sampleCounter);
-                    result = (_firBuffer[_firBuffer.Length - 2] * (1f - dist)) + (_firBuffer[_firBuffer.Length - 1] * dist);
+                    for (int i = 0; i < _firBuffer.Length; i++)
+                    {
+                        result += (float)(Sinc((i - (_firBuffer.Length / 2)) - (_sampleCounter - (int)_sampleCounter), 1.0) * _firBuffer[i]);
+                    }
 
                     _lastSample = result;
 
                     _sampleCounter += _invRatio;
                     returnVal = true;
                 }
-                //else
-                {
-                    _sampleCounter--;
-                }
-
-
-
-                //// If the counter is 0 < x < 1, we need more input
-                //if (_sampleCounter == 0f || _sampleCounter >= 1f)
-                //{
-                //    _sampleCounter -= (int)_sampleCounter;
-                //    returnVal = true;
-                //}
-                ////else
-
-                //{
-                //    if (_sampleCounter == -1)
-                //        _sampleCounter = 0f;
-                //    else
-                //        _sampleCounter += _ratio;
-                //}
+                _sampleCounter--;
             }
             else
             {
                 throw new NotImplementedException("Raising the sampling rate is currently not supported");
             }
-
-            _needsMoreInput = !returnVal;
-            //Console.WriteLine(returnVal);
 
             return returnVal;
         }

@@ -9,38 +9,65 @@ namespace SignalTest
     class Gardner
     {
         private bool _flipFlop;
-        private float _prevSample;
-        private float _currentSample;
-        private float _middleSample;
+        private float _prevSampleI;
+        private float _prevSampleQ;
+        private float _currentSampleI;
+        private float _currentSampleQ;
+        private float _middleSampleI;
+        private float _middleSampleQ;
 
 
-        public Gardner(float baudRate)
+        public Gardner()
         {
         }
 
 
         public float Process(float sample)
         {
+            return Process(sample, 0);
+        }
+
+        public float Process(float sampleI, float sampleQ)
+        {
             // Shift symbol samples over
-            _prevSample = _middleSample;
-            _middleSample = _currentSample;
-            _currentSample = sample;
+            _prevSampleI = _middleSampleI;
+            _prevSampleQ = _middleSampleQ;
+            _middleSampleI = _currentSampleI;
+            _middleSampleQ = _currentSampleQ;
+            _currentSampleI = sampleI;
+            _currentSampleQ = sampleQ;
 
             if ((_flipFlop ^= true))
             {
                 // Every other sample, calculate error, but only if there is a transition
                 // using Jonti's (modified gardner) method for M-QAM and M-PAM timing recovery
                 // This method also works for QPSK and BPSK, and 2-PAM as well
-                if (Math.Sign(_prevSample) != Math.Sign(_currentSample))
+                float error = 0f;
+
+                // Calculate for I
+                if (Math.Sign(_prevSampleI) != Math.Sign(_currentSampleI))
                 {
-                    float error = 0.5f * (_currentSample + _prevSample) - _middleSample;
-                    if (_currentSample > _prevSample)
+                    float localError = 0.5f * (_currentSampleI + _prevSampleI) - _middleSampleI;
+                    if (_currentSampleI > _prevSampleI)
                     {
-                        error = -error;
+                        localError = -localError;
                     }
 
-                    return error;
+                    error += localError;
                 }
+
+                // Calculate for Q
+                if (Math.Sign(_prevSampleQ) != Math.Sign(_currentSampleQ))
+                {
+                    float localError = 0.5f * (_currentSampleQ + _prevSampleQ) - _middleSampleQ;
+                    if (_currentSampleQ > _prevSampleQ)
+                    {
+                        localError = -localError;
+                    }
+
+                    error += localError;
+                }
+                return error;
             }
 
             return 0;

@@ -69,7 +69,7 @@ namespace SignalTest
             _isAdaptAllowed = true;
 
             _gainIntegrator = new Integrator(1f, (1f / 44100f) * 1500f);
-            _gainIntegrator.Preload(1.0f);
+            _gainIntegrator.SetValue(1.0f);
             _gain = 1.0f;
         }
 

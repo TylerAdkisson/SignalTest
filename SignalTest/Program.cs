@@ -19,6 +19,8 @@ namespace SignalTest
             //PllTest1();
             //FMModulate();
 
+            //DecimationTest();
+
             GenerateQPSK();
 
             AWGN();
@@ -816,11 +818,11 @@ namespace SignalTest
             Random r = new Random(11);
             Random rNoise = new Random(27);
 
-            long totalSymbols = 2000;
+            long totalSymbols = 3000;
             long preambleSymbols = 500;
             long postambleSymbols = 100;
             long blankStartSymbols = 0;
-            float baud = 300f;// 1142;// 1200;// 31.25;
+            float baud = 2400f;// 1142;// 1200;// 31.25;
             float bitLengthSamples = (sampleRate / baud); //(long)(0.0033 * 44100);
             float bitLengthSamplesFrac = sampleRate / baud;
             int effectiveSampleRate = ((int)bitLengthSamples * (int)baud);
@@ -848,11 +850,11 @@ namespace SignalTest
 
             // Constant sliding drift
             float driftHzPerSecond = 0f;
-            float driftHzPerSample = (driftHzPerSecond / 50f) / sampleRate;
-            float currentDriftHz = 0f;
+            float driftHzPerSample = (driftHzPerSecond / 50f) / effectiveSampleRate;
+            float currentDriftPercent = 0f;
 
             // Variable drift
-            Vco vcoDrift = new Vco(sampleRate, 1f);
+            Vco vcoDrift = new Vco(effectiveSampleRate, 1f);
             float vcoDriftSpanHz = 0.0f;
             float vcoDriftSpan = (vcoDriftSpanHz / (float)vco.GetSpanWidth());
 
@@ -861,6 +863,7 @@ namespace SignalTest
             float bitQ = 0;
 
             float lastBit = 0;
+            int preambleCounter = 0;
 
             RootRaisedCosineFilter rBitI = new RootRaisedCosineFilter(effectiveSampleRate, 12, baud, 0.25f);
             RootRaisedCosineFilter rBitQ = new RootRaisedCosineFilter(effectiveSampleRate, 12, baud, 0.25f);
@@ -912,13 +915,6 @@ namespace SignalTest
             {
                 for (int i = 0; i < sampleCount; i++)
                 {
-                    if (driftHzPerSample > 0)
-                    {
-                        // Drift carrier
-                        currentDriftHz += driftHzPerSample;
-                        vco.Tune(currentDriftHz);
-                    }
-
                     //if (i % bitLengthSamples == 0)
                     if (symbolCountFloat1 >= 1)
                     {
@@ -928,7 +924,33 @@ namespace SignalTest
                         }
                         else if (symbolCount <= blankStartSymbols + preambleSymbols)
                         {
+                            //switch (preambleCounter)
+                            //{
+                            //    case 0:
+                            //    case 2:
+                            //    case 4:
+                            //        // -1, -1
+                            //        bitI = symbols[0];
+                            //        bitQ = symbols[0];
+                            //        break;
+                            //    case 1:
+                            //        // +1, +1
+                            //        bitI = symbols[symbols.Length - 1];
+                            //        bitQ = symbols[symbols.Length - 1];
+                            //        break;
+                            //    case 3:
+                            //        // +1, -1
+                            //        bitI = symbols[symbols.Length - 1];
+                            //        bitQ = symbols[0];
+                            //        break;
+                            //}
+
+                            //preambleCounter++;
+                            //if (preambleCounter > 4)
+                            //    preambleCounter = 1;
+
                             bitI = lastBit == symbols[0] ? symbols[symbols.Length-1] : symbols[0];
+                            //bitQ = 1f;
                             bitQ = bitI;
 
                             lastBit = bitI;
@@ -1000,8 +1022,7 @@ namespace SignalTest
 
                     symbolCountFloat1 += 1.0 / (int)bitLengthSamplesFrac;// / bitLengthSamplesFrac;
 
-                    vcoDrift.Next();
-                    vco.Tune(vcoDrift.Sin() * vcoDriftSpan);
+                    
                     float sBitI = (float)rBitI.Process(bitI / ampDiv);
                     float sBitQ = (float)rBitQ.Process(bitQ / ampDiv);
 
@@ -1037,6 +1058,20 @@ namespace SignalTest
                         sBitQ /= sincDCGain;
 
                         //Console.WriteLine("{0,9:F6} {1,9:F6}", sBitI, sampleCountFrac);
+
+                        // Constant doppler shift
+                        float dopplerTuneAmount = 0f;
+                        if (driftHzPerSample > 0)
+                        {
+                            // Drift carrier
+                            currentDriftPercent += driftHzPerSample;
+                            dopplerTuneAmount = currentDriftPercent;
+                        }
+
+                        // Variable doppler
+                        vcoDrift.Next();
+                        dopplerTuneAmount += (float)vcoDrift.Sin() * vcoDriftSpan;
+                        vco.Tune(dopplerTuneAmount);
 
                         vco.Next();
 
@@ -1576,7 +1611,7 @@ namespace SignalTest
             // 18.0 dB @ 16000Hz
             // 21.0 dB @  8000Hz
             int sampleRate = 8000;
-            double snrDbBase = 15.0f;
+            double snrDbBase = 38.0f;
             double snrDb = 10.0 * Math.Log10((1.0 / sampleRate) * (Math.Pow(10, snrDbBase / 10.0)) / (1.0 / 8000));
             double snrLin = (float)Math.Pow(10, (snrDb / 10.0));
 
@@ -1605,16 +1640,20 @@ namespace SignalTest
                     int bytesRead = 0;
 
                     float EsSigma = (float)Math.Sqrt(N0);
+                    float noiseTotal = 0f;
                     while ((bytesRead = fsIn.Read(byteWorkingBuffer, 0, byteWorkingBuffer.Length)) > 0)
                     {
                         float sample = BitConverter.ToSingle(byteWorkingBuffer, 0);
 
                         float n = (float)NoiseNext(r, EsSigma);
+                        noiseTotal += n * n;
                         sample += n;
 
                         fsOut.Write(BitConverter.GetBytes(sample), 0, 4);
                         //fsOut.Write(BitConverter.GetBytes(n), 0, 4);
                     }
+
+                    noiseTotal /= sampleCount;
                 }
             }
         }
@@ -1686,7 +1725,7 @@ namespace SignalTest
             Downsampler dsQ = new Downsampler(sampleRate);
             ds.SetRatio((baud * 2) / sampleRate);
             dsQ.SetRatio((baud * 2) / sampleRate);
-            Gardner g = new Gardner(baud);
+            Gardner g = new Gardner();
 
             using (Stream fs = File.Create(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_6_Timing.pcm32f")))
             {
@@ -1754,7 +1793,7 @@ namespace SignalTest
         static void DecisionDirected()
         {
             int sampleRate = 8000;// 11200*1;
-            float baud = 305f;// 1142f;// 1200f;// 2322;
+            float baud = 2405f;// 1142f;// 1200f;// 2322;
             Vco carrier = new Vco(sampleRate, 1505/*1560*/, 50);
             RootRaisedCosineFilter rBitI = new RootRaisedCosineFilter(sampleRate, 12, baud, 0.25f);
             RootRaisedCosineFilter rBitQ = new RootRaisedCosineFilter(sampleRate, 12, baud, 0.25f);
@@ -1762,20 +1801,20 @@ namespace SignalTest
             Downsampler dsQ = new Downsampler(sampleRate);
             ds.SetRatio((baud * 2) / sampleRate);
             dsQ.SetRatio((baud * 2) / sampleRate);
-            Gardner g = new Gardner(baud);
+            Gardner g = new Gardner();
             bool flipFlop = false;
             // It appears that a lower (but not too low!) proportional gain improves performance
-            Integrator intAngle = new Integrator(0.3f, (1f / baud) * 5f);
+            Integrator intAngle = new Integrator(0.2f, (1f / baud) * 5f);
             Integrator intMagnitude = new Integrator(0.1f, (1f / baud) * 20f);
-            intMagnitude.Preload(1f);
+            intMagnitude.SetValue(1f);
             //BiQuadraticFilter bandpass = new BiQuadraticFilter(BiQuadraticFilter.Type.LOWPASS, 5000, sampleRate, 0.707);
             AGC agc = new AGC(0.707f, 15f);
 
-            Integrator intRatio = new Integrator(1.0f, (1f / (baud*2)) * 2.0f);
-            intRatio.Preload(((baud * 2) / sampleRate));
+            Integrator intRatio = new Integrator(0.1f, (1f / (baud*2)) * 2f);
+            intRatio.SetValue(((baud * 2) / sampleRate));
             //intRatio.Preload(baud * 2);
 
-            float ratioScale = 0.00127f*3;///*0.00031496f*4;*/// 0.0052542f * (1f / sampleRate) / 0.00002083f;
+            float ratioScale = 0.048768f;// 0.04064f;// 0.048768f *1f;// 0.00127f *3;///*0.00031496f*4;*/// 0.0052542f * (1f / sampleRate) / 0.00002083f;
 
 
             float bitOutI = 0f;
@@ -1874,9 +1913,14 @@ namespace SignalTest
                             dsQ.Next();
                             if (ds.Next())
                             {
-                                float sample2 = ds.GetSample();
+                                // Apply fine AGC before running error detector
+                                bitOutI = ds.GetSample();
+                                bitOutQ = dsQ.GetSample();
 
-                                float error = g.Process(sample2);
+                                bitOutI *= constGain * 0.707f;
+                                bitOutQ *= constGain * 0.707f;
+
+                                float error = g.Process(bitOutI, bitOutQ);
                                 float ratio = ((baud * 2) / sampleRate);// + (/*0.1373201673f*/ /*0.01625f*/ /*0.00542f*/ /*0.0325f*/ ratioScale * error);
 
                                 ratio = intRatio.Process(error * ratioScale * 1f);
@@ -1886,7 +1930,7 @@ namespace SignalTest
                                 ratio = Math.Max(ratio, 0.001f);
                                 Console.WriteLine("R {0:F6} {1,7:F2} {2,7:F2} {3,10:F7}", ratio, sampleRate * ratio * 0.5f, carrier.GetFrequency(0), error);
 
-                                //if (outputCount < 670)
+                                //if (symbolCount < 400)
                                 {
                                     ds.SetRatio(ratio);
                                     dsQ.SetRatio(ratio);
@@ -1894,11 +1938,7 @@ namespace SignalTest
 
                                 if (flipFlop ^= true)
                                 {
-                                    bitOutI = ds.GetSample();
-                                    bitOutQ = dsQ.GetSample();
-
-                                    bitOutI *= constGain * 0.707f;
-                                    bitOutQ *= constGain * 0.707f;
+                                    
 
                                     //bitOutI = Math.Max(Math.Min(bitOutI, 1.2f), -1.2f);
                                     //bitOutQ = Math.Max(Math.Min(bitOutQ, 1.2f), -1.2f);
@@ -2013,7 +2053,7 @@ namespace SignalTest
                                             intAngle.IntegratorGain = (1f / baud) * 0.5f;
                                             intAngle.ProportionalGain = 0.1f;
                                             //intRatio.IntegratorGain *= 0.5f;
-                                            intRatio.ProportionalGain *= 0.5f;
+                                            //intRatio.ProportionalGain *= 0.5f;
                                             //ratioScale *= 0.5f;
                                         }
                                         //if (sampleCount >= 500)
@@ -2026,7 +2066,7 @@ namespace SignalTest
 
                                         // NOTE: It appears the divisor on angleDiff should be higher for lower baud rates?
                                         // Actually, it seems to not have a linear relation to baud rate
-                                        float phaseError = (float)angleDiffDiff + (float)angleDiff * 0.2f;
+                                        float phaseError = (float)angleDiffDiff + (float)angleDiff * 1.0f;
                                         //phaseError -= Math.Sign(phaseError) * ((phaseError * phaseError) * 0.7f);
 
                                         float angleFilter = intAngle.Process((float)phaseError);
@@ -2038,7 +2078,6 @@ namespace SignalTest
 
                                         carrier.Tune(angleFilter);
                                         //carrier.SetCenterFrequency(angleFilter);
-                                        
 
                                         //if (i % 10 == 0)
                                         //{
@@ -2066,6 +2105,35 @@ namespace SignalTest
                         }
                     }
 
+                }
+            }
+        }
+
+        static void DecimationTest()
+        {
+            int sampleRate = 8000;
+            using (Stream fs = File.Create(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_8_decimate.pcm32f")))
+            {
+                Vco vco = new Vco(sampleRate, 1000, 50);
+                Downsampler ds = new Downsampler(sampleRate);
+
+                ds.SetRatio(0.75f);
+
+                for (int i = 0; i < 1000; i++)
+                {
+                    vco.Next();
+                    float sample = (float)vco.Cos();
+
+                    float sample2 = 0f;
+                    if (ds.Next())
+                    {
+                        sample2 = ds.GetSample();
+                        fs.Write(BitConverter.GetBytes(sample2), 0, 4);
+                    }
+                    ds.SupplyInput(sample);
+
+                    //fs.Write(BitConverter.GetBytes(sample), 0, 4);
+                    //fs.Write(BitConverter.GetBytes(sample2), 0, 4);
                 }
             }
         }
