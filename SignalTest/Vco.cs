@@ -161,6 +161,7 @@ namespace SignalTest
             if (phaseIndex >= _states.Length || phaseIndex < 0)
                 throw new IndexOutOfRangeException("The specified phase index is out of range");
 
+            _states[phaseIndex].Phase -= _states[phaseIndex].PhaseOffset;
             _states[phaseIndex].PhaseOffset = offsetRadians;
             _states[phaseIndex].Phase += offsetRadians;
         }

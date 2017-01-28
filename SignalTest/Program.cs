@@ -950,8 +950,8 @@ namespace SignalTest
                             //    preambleCounter = 1;
 
                             bitI = lastBit == symbols[0] ? symbols[symbols.Length-1] : symbols[0];
-                            //bitQ = 1f;
-                            bitQ = bitI;
+                            bitQ = 1f;
+                            //bitQ = bitI;
 
                             lastBit = bitI;
 
@@ -1562,7 +1562,7 @@ namespace SignalTest
                 //dc.DrawRectangle(dotBrush, null, new System.Windows.Rect(x, y, 5, 5));
                 if (i < 500 * channels)
                     dc.DrawEllipse(dotBrushSync, null, new System.Windows.Point(x, y), 2, 2);
-                else if (i > samples.Length / 2)
+                else if (i > (samples.Length - (500 * channels)) / 2)
                     dc.DrawEllipse(dotBrush2, null, new System.Windows.Point(x, y), 2, 2);
                 else
                     dc.DrawEllipse(dotBrush, null, new System.Windows.Point(x, y), 2, 2);
@@ -1611,7 +1611,7 @@ namespace SignalTest
             // 18.0 dB @ 16000Hz
             // 21.0 dB @  8000Hz
             int sampleRate = 8000;
-            double snrDbBase = 38.0f;
+            double snrDbBase = 24.0f;
             double snrDb = 10.0 * Math.Log10((1.0 / sampleRate) * (Math.Pow(10, snrDbBase / 10.0)) / (1.0 / 8000));
             double snrLin = (float)Math.Pow(10, (snrDb / 10.0));
 
@@ -1807,6 +1807,7 @@ namespace SignalTest
             Integrator intAngle = new Integrator(0.2f, (1f / baud) * 5f);
             Integrator intMagnitude = new Integrator(0.1f, (1f / baud) * 20f);
             intMagnitude.SetValue(1f);
+
             //BiQuadraticFilter bandpass = new BiQuadraticFilter(BiQuadraticFilter.Type.LOWPASS, 5000, sampleRate, 0.707);
             AGC agc = new AGC(0.707f, 15f);
 
@@ -1835,11 +1836,10 @@ namespace SignalTest
             bool isSyncMode = true;
 
             double avgErr = 0f;
+            double lastAvgErr = 0f;
+            double errDeriv = 0f;
             long symbolCount = 0;
-            float angleDiv = 1f;
             float phaseAngleDiff = 0f;
-            float lastAngleDiff = 0f;
-            float lastLastAngleDiff = 0f;
 
             using (Stream fs = File.Create(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_1.pcm32f")))
             {
@@ -1938,7 +1938,7 @@ namespace SignalTest
 
                                 if (flipFlop ^= true)
                                 {
-                                    
+
 
                                     //bitOutI = Math.Max(Math.Min(bitOutI, 1.2f), -1.2f);
                                     //bitOutQ = Math.Max(Math.Min(bitOutQ, 1.2f), -1.2f);
@@ -1951,7 +1951,7 @@ namespace SignalTest
                                     fs.Write(BitConverter.GetBytes((float)avgErr), 0, 4);
                                     //fs.Write(BitConverter.GetBytes(agc.AverageAmplitude), 0, 4);
                                     //fs.Write(BitConverter.GetBytes(isSyncMode ? 0f : 0.707f), 0, 4);
-                                    fs.Write(BitConverter.GetBytes(phaseAngleDiff), 0, 4);
+                                    fs.Write(BitConverter.GetBytes((float)errDeriv), 0, 4);
 
 
                                     // Find the closest constellation point
@@ -1975,6 +1975,12 @@ namespace SignalTest
                                     double magDiff = (constMag - curMag) * 1f;
                                     //magDiff -= (magDiff < 0 ? -1f : 1f) * ((magDiff * magDiff) / 1f);
 
+                                    // Calculate phase angle difference
+                                    double tempX, tempY;
+                                    ComplexMultiply(bitOutI, bitOutQ, constPt.I, -constPt.Q, out tempX, out tempY);
+
+                                    double phaseAngle = Math.Atan2(tempY, tempX);
+
 
                                     constGain = intMagnitude.Process((float)(magDiff));
                                     //constGain = 1.29f;
@@ -1982,7 +1988,7 @@ namespace SignalTest
                                         constGain = 0.01f;
                                     if (constGain > 2.0f)
                                         constGain = 2.0f;
-                                    
+
 
                                     curMag = Math.Sqrt((bitOutI * bitOutI) + (bitOutQ * bitOutQ));
                                     Console.WriteLine("M {0,5:F2} {1,5:F2} {2,5:F2}", curMag, constMag, constGain);
@@ -1994,100 +2000,35 @@ namespace SignalTest
                                     //distance /= 0.09123958466923193863236701446514;
 
                                     avgErr = (avgErr * 0.95) + (distance * 0.05);
-                                    Console.WriteLine("E {0,7:F4} {1,7:F4}", distance, avgErr);
+                                    errDeriv = (errDeriv * 0.90) + ((avgErr - lastAvgErr) * 0.10);
+                                    lastAvgErr = avgErr;
+                                    Console.WriteLine("E {0,7:F4} {1,7:F4} {2,7:F4}", distance, avgErr, errDeriv);
 
-                                    if (Math.Sign(curAngle) == Math.Sign(constAngle))// && (!isSyncMode || (bitOutI > 0.5f || bitOutQ > 0.5f)))
+                                    phaseAngleDiff = (float)phaseAngle;
+
+                                    // TODO: Add actual sync/preamble detector
+                                    if (isSyncMode && symbolCount >= 400)
+                                    //if (isSyncMode && symbolCount > 10 && avgErr < 0.2f)
+                                    //if (isSyncMode && i >= 30000)
                                     {
-                                        double angleDiff = (curAngle - constAngle) * 1f;// / 3.1419526535897932384;
+                                        isSyncMode = false;
+                                        agc.AdaptGain = false;
 
-                                        double angleDiffDiff = angleDiff - lastAngleDiff;
-                                        //double lastAngleDiffDiff = lastAngleDiff - lastLastAngleDiff;
-
-                                        //if (angleDiffDiff > 1.2f)
-                                        //    angleDiffDiff -= 1.57079632f;
-                                        //if (angleDiffDiff < 1.3f)
-                                        //    angleDiffDiff += 1.57079632f;
-
-                                        //angleDiffDiff = Math.Min(Math.Max(angleDiffDiff, -1.2), 1.2);
-
-                                        double diffRatio = Math.Abs(angleDiffDiff) / Math.Abs(lastLastAngleDiff);
-
-                                        // Correct for phase angle polarity swaps
-                                        if (Math.Abs(angleDiffDiff) > 0.6f && Math.Sign(angleDiffDiff) != Math.Sign(lastLastAngleDiff))
-                                            angleDiffDiff += 1.57079632f * Math.Sign(lastAngleDiff);
-
-
-
-                                        //if ((angleDiffDiff - lastAngleDiffDiff) > 1.3f)
-                                        //    angleDiffDiff -= 1.57079632f;
-
-                                        //phaseAngleDiff = (float)angleDiff / 3.1415926535897932384f;
-
-                                        //if (Math.Abs(angleDiffDiff) > 0.6)
-                                        {
-                                            angleDiffDiff -= Math.Sign(angleDiffDiff) * ((angleDiffDiff * angleDiffDiff) * 0.5f);
-
-                                        }
-                                        phaseAngleDiff = (float)angleDiffDiff;
-
-
-                                        //angleDiffDiff *= 1.5f;
-                                        //angleDiffDiffCounter += (float)angleDiffDiff;
-                                        //diffCount++;
-                                        lastLastAngleDiff = (float)angleDiffDiff;
-                                        lastAngleDiff = (float)angleDiff;
-                                        //angleDiff -= (angleDiff < 0 ? -1f : 1f) * ((angleDiff * angleDiff) / 3f);
-                                        //angleDiff = Math.Min(Math.Max(angleDiff, -0.25f), 0.25f);
-                                        //if (i >= 2000)
-                                        //    angleDiff /= 2;
-
-                                        // TODO: Add actual sync/preamble detector
-                                        if (isSyncMode && symbolCount >= 400)
-                                        //if (isSyncMode && symbolCount > 10 && avgErr < 0.2f)
-                                        //if (isSyncMode && i >= 30000)
-                                        {
-                                            isSyncMode = false;
-                                            agc.AdaptGain = false;
-
-                                            // Once we have a good estimate of carrier offset, only allow small tweaks
-                                            intAngle.IntegratorGain = (1f / baud) * 0.5f;
-                                            intAngle.ProportionalGain = 0.1f;
-                                            //intRatio.IntegratorGain *= 0.5f;
-                                            //intRatio.ProportionalGain *= 0.5f;
-                                            //ratioScale *= 0.5f;
-                                        }
-                                        //if (sampleCount >= 500)
-                                        //    angleDiff /= 2f;
-
-                                        //phaseAngleDiff = (float)angleDiff / 3.1415926535897932384f;
-                                        //phaseAngleDiff = (float)angleDiffDiff;
-
-                                        //angleDiff -= Math.Sign(angleDiff) * ((angleDiff * angleDiff) * 0.7f);
-
-                                        // NOTE: It appears the divisor on angleDiff should be higher for lower baud rates?
-                                        // Actually, it seems to not have a linear relation to baud rate
-                                        float phaseError = (float)angleDiffDiff + (float)angleDiff * 1.0f;
-                                        //phaseError -= Math.Sign(phaseError) * ((phaseError * phaseError) * 0.7f);
-
-                                        float angleFilter = intAngle.Process((float)phaseError);
-
-                                        //angleFilter += (float)(rTest.NextDouble() * 2 - 1) * 5f;
-
-                                        Console.WriteLine("A {0,5:F2} {1,5:F2} {2,9:F6}", angleDiff, angleFilter, angleDiffDiff);
-                                        Console.WriteLine("S {0,5} {1,9:N0}", isSyncMode, symbolCount);
-
-                                        carrier.Tune(angleFilter);
-                                        //carrier.SetCenterFrequency(angleFilter);
-
-                                        //if (i % 10 == 0)
-                                        //{
-                                        //    //Console.WriteLine(carrier.GetFrequency(0));
-                                        //}
+                                        // Once we have a good estimate of carrier offset, only allow small tweaks
+                                        //intAngle.IntegratorGain = (1f / baud) * 0.5f;
+                                        intAngle.IntegratorGain *= 0.5f;
+                                        //intAngle.ProportionalGain = 0.1f;
+                                        //intRatio.IntegratorGain *= 0.5f;
+                                        //intRatio.ProportionalGain *= 0.5f;
+                                        //ratioScale *= 0.5f;
                                     }
-                                    else
-                                    {
 
-                                    }
+                                    float angleFilter = intAngle.Process((float)phaseAngle);
+
+                                    Console.WriteLine("A {0,5:F2} {1,5:F2}", phaseAngle, angleFilter);
+                                    Console.WriteLine("S {0,5} {1,9:N0}", isSyncMode, symbolCount);
+
+                                    carrier.Tune(angleFilter);
                                     symbolCount++;
                                 }
                             }
@@ -2199,6 +2140,14 @@ namespace SignalTest
 
             double phi = Math.PI / scale;
             return Math.Sin(phi * x) / (phi * x);
+        }
+
+        static void ComplexMultiply(double aR, double aI, double bR, double bI, out double resultR, out double resultI)
+        {
+            //resultR = (aR * bR) - (aI * bI);
+            //resultI = (aR + aI) * (bR + bI) - (aR * bR) - (aI * bI);
+            resultR = (aR * bR) - (aI * bI);
+            resultI = (aR * bI) + (aI * bR);
         }
 
 
