@@ -57,7 +57,7 @@ namespace SignalTest
                 }
 
                 // Calculate for Q
-                if (Math.Sign(_prevSampleQ) != Math.Sign(_currentSampleQ))
+                if (sampleQ != 0f && Math.Sign(_prevSampleQ) != Math.Sign(_currentSampleQ))
                 {
                     float localError = 0.5f * (_currentSampleQ + _prevSampleQ) - _middleSampleQ;
                     if (_currentSampleQ > _prevSampleQ)

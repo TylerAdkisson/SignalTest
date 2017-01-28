@@ -65,10 +65,10 @@ namespace SignalTest
             _targetAmp = targetAmplitude;
             _maxGain = maxGain;
             _state = 0f;
-            _samples = new float[500];
+            _samples = new float[200];
             _isAdaptAllowed = true;
 
-            _gainIntegrator = new Integrator(1f, (1f / 44100f) * 1500f);
+            _gainIntegrator = new Integrator(1f, (1f / 44100f) * 1000f);
             _gainIntegrator.SetValue(1.0f);
             _gain = 1.0f;
         }

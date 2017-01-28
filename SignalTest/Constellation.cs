@@ -53,7 +53,8 @@ namespace SignalTest
 
         public void SetPoints(Point[] points)
         {
-            Points = points;
+            Points = new Point[points.Length];
+            Array.Copy(points, Points, points.Length);
         }
 
         public Point FindNearestPoint(double i, double q)
@@ -105,6 +106,26 @@ namespace SignalTest
             //}
 
             return nearest;
+        }
+
+        public void RotateDegrees(double degrees)
+        {
+            double radians = degrees * 180 / Math.PI;
+            double rotReal = Math.Cos(radians);
+            double rotImag = Math.Sin(radians);
+
+            // Rotate all points around origin (0, 0)
+            for (int i = 0; i < Points.Length; i++)
+            {
+                ComplexMultiply(Points[i].I, Points[i].Q, rotReal, rotImag, out Points[i].I, out Points[i].Q);
+            }
+        }
+
+
+        private static void ComplexMultiply(double aR, double aI, double bR, double bI, out double resultR, out double resultI)
+        {
+            resultR = (aR * bR) - (aI * bI);
+            resultI = (aR * bI) + (aI * bR);
         }
     }
 }

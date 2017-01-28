@@ -850,7 +850,9 @@ namespace SignalTest
 
             // Constant sliding drift
             float driftHzPerSecond = 0f;
+            float driftHzMax = 10f;
             float driftHzPerSample = (driftHzPerSecond / 50f) / effectiveSampleRate;
+            float driftHzMaxPercent = driftHzMax / (float)vco.GetSpanWidth();
             float currentDriftPercent = 0f;
 
             // Variable drift
@@ -869,7 +871,7 @@ namespace SignalTest
             RootRaisedCosineFilter rBitQ = new RootRaisedCosineFilter(effectiveSampleRate, 12, baud, 0.25f);
 
             int ampDiv = 1;
-            int symbolsPerAxis = 8;
+            int symbolsPerAxis = 4;
 
             float[] symbols = new float[symbolsPerAxis];
 
@@ -1061,12 +1063,13 @@ namespace SignalTest
 
                         // Constant doppler shift
                         float dopplerTuneAmount = 0f;
-                        if (driftHzPerSample > 0)
+                        if (driftHzPerSample > 0 && currentDriftPercent < driftHzMaxPercent)
                         {
                             // Drift carrier
                             currentDriftPercent += driftHzPerSample;
-                            dopplerTuneAmount = currentDriftPercent;
                         }
+                        dopplerTuneAmount = currentDriftPercent;
+
 
                         // Variable doppler
                         vcoDrift.Next();
@@ -1496,7 +1499,7 @@ namespace SignalTest
             //dc.DrawLine(new Pen(Brushes.Black, 1), new System.Windows.Point(width / 4, 0), new System.Windows.Point(width / 4, height));
             //dc.DrawLine(new Pen(Brushes.Black, 1), new System.Windows.Point(width * 0.75, 0), new System.Windows.Point(width * 0.75, height));
 
-            Constellation constellation = Constellation.CreateSquare(4);
+            Constellation constellation = Constellation.CreateSquare(8);
 
             //// 16-QAM/4-QAM: 0.5, width / 4
             //// 64-QAM: 0.66, width / 6
@@ -1611,7 +1614,7 @@ namespace SignalTest
             // 18.0 dB @ 16000Hz
             // 21.0 dB @  8000Hz
             int sampleRate = 8000;
-            double snrDbBase = 24.0f;
+            double snrDbBase = 30.0f;
             double snrDb = 10.0 * Math.Log10((1.0 / sampleRate) * (Math.Pow(10, snrDbBase / 10.0)) / (1.0 / 8000));
             double snrLin = (float)Math.Pow(10, (snrDb / 10.0));
 
@@ -1804,7 +1807,7 @@ namespace SignalTest
             Gardner g = new Gardner();
             bool flipFlop = false;
             // It appears that a lower (but not too low!) proportional gain improves performance
-            Integrator intAngle = new Integrator(0.2f, (1f / baud) * 5f);
+            Integrator intAngle = new Integrator(0.4f, (1f / baud) * 10f);
             Integrator intMagnitude = new Integrator(0.1f, (1f / baud) * 20f);
             intMagnitude.SetValue(1f);
 
@@ -1831,7 +1834,7 @@ namespace SignalTest
             //  256-QAM: 16
             //  512-QAM: 24
             // 1024-QAM: 32
-            Constellation constellation = Constellation.CreateSquare(8);
+            Constellation constellation = Constellation.CreateSquare(4);
             Constellation constellationSync = Constellation.CreateSquare(2);
             bool isSyncMode = true;
 
@@ -1898,8 +1901,8 @@ namespace SignalTest
                             //iFilter = sample;
                             //qFilter = sample22;
 
-                            //iFilter *= 4.3f;
-                            //qFilter *= 4.3f;
+                            //iFilter *= 3.8f;
+                            //qFilter *= 3.8f;
 
 
                             //agc.Process((Math.Abs(iFilter) + Math.Abs(qFilter)) / 2f);
@@ -1939,19 +1942,12 @@ namespace SignalTest
                                 if (flipFlop ^= true)
                                 {
 
-
                                     //bitOutI = Math.Max(Math.Min(bitOutI, 1.2f), -1.2f);
                                     //bitOutQ = Math.Max(Math.Min(bitOutQ, 1.2f), -1.2f);
 
                                     //bitOutI = SoftLimit(bitOutI);
                                     //bitOutQ = SoftLimit(bitOutQ);
 
-                                    fs.Write(BitConverter.GetBytes(bitOutI), 0, 4);
-                                    fs.Write(BitConverter.GetBytes(bitOutQ), 0, 4);
-                                    fs.Write(BitConverter.GetBytes((float)avgErr), 0, 4);
-                                    //fs.Write(BitConverter.GetBytes(agc.AverageAmplitude), 0, 4);
-                                    //fs.Write(BitConverter.GetBytes(isSyncMode ? 0f : 0.707f), 0, 4);
-                                    fs.Write(BitConverter.GetBytes((float)errDeriv), 0, 4);
 
 
                                     // Find the closest constellation point
@@ -2017,7 +2013,7 @@ namespace SignalTest
                                         // Once we have a good estimate of carrier offset, only allow small tweaks
                                         //intAngle.IntegratorGain = (1f / baud) * 0.5f;
                                         intAngle.IntegratorGain *= 0.5f;
-                                        //intAngle.ProportionalGain = 0.1f;
+                                        intAngle.ProportionalGain *= 0.5f;
                                         //intRatio.IntegratorGain *= 0.5f;
                                         //intRatio.ProportionalGain *= 0.5f;
                                         //ratioScale *= 0.5f;
@@ -2030,6 +2026,13 @@ namespace SignalTest
 
                                     carrier.Tune(angleFilter);
                                     symbolCount++;
+
+                                    fs.Write(BitConverter.GetBytes((float)bitOutI), 0, 4);
+                                    fs.Write(BitConverter.GetBytes((float)bitOutQ), 0, 4);
+                                    fs.Write(BitConverter.GetBytes((float)avgErr), 0, 4);
+                                    //fs.Write(BitConverter.GetBytes(agc.AverageAmplitude), 0, 4);
+                                    //fs.Write(BitConverter.GetBytes(isSyncMode ? 0f : 0.707f), 0, 4);
+                                    fs.Write(BitConverter.GetBytes((float)phaseAngleDiff), 0, 4);
                                 }
                             }
                             ds.SupplyInput(iFilter);
