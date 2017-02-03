@@ -17,6 +17,8 @@ namespace SignalTest
         private bool _isAdaptAllowed;
         private Integrator _gainIntegrator;
         private float _gain;
+        private bool _isClampEnabled;
+        private float _clampLevel;
 
 
         public float TargetAmplitude
@@ -54,6 +56,18 @@ namespace SignalTest
             set { _maxGain = value; }
         }
 
+        public bool EnableClamping
+        {
+            get { return _isClampEnabled; }
+            set { _isClampEnabled = value; }
+        }
+
+        public float ClampLevel
+        {
+            get { return _clampLevel; }
+            set { _clampLevel = value; }
+        }
+
 
         public AGC(float targetAmplitude)
             : this(targetAmplitude, 5f)
@@ -79,6 +93,9 @@ namespace SignalTest
             // Apply gain
             value *= _gain;
 
+            if (Math.Abs(value) > _clampLevel)
+                value = Math.Sign(value) * _clampLevel;
+
             ProcessInternal(Math.Abs(value));
 
             return value;
@@ -90,9 +107,14 @@ namespace SignalTest
             value1 *= _gain;
             value2 *= _gain;
 
+            if (Math.Abs(value1) > _clampLevel)
+                value1 = Math.Sign(value1) * _clampLevel;
+            if (Math.Abs(value2) > _clampLevel)
+                value2 = Math.Sign(value2) * _clampLevel;
+
             // Compute average output volume
-            //float outputVol = Math.Max(Math.Abs(value1), Math.Abs(value2));
-            float outputVol = (Math.Abs(value1) + Math.Abs(value2)) / 2f;
+            float outputVol = Math.Max(Math.Abs(value1), Math.Abs(value2));
+            //float outputVol = (Math.Abs(value1) + Math.Abs(value2)) / 2f;
 
             ProcessInternal(outputVol);
         }
@@ -131,6 +153,8 @@ namespace SignalTest
             {
                 _gain = _gainIntegrator.Process(error);
                 _gain = Math.Max(Math.Min(_gain, _maxGain), 0);
+                if (_gain == _maxGain)
+                    _gainIntegrator.SetValue(_maxGain);
             }
         }
     }

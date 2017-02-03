@@ -822,7 +822,7 @@ namespace SignalTest
             long preambleSymbols = 500;
             long postambleSymbols = 100;
             long blankStartSymbols = 0;
-            float baud = 2400f;// 1142;// 1200;// 31.25;
+            float baud = 1200f;// 1142;// 1200;// 31.25;
             float bitLengthSamples = (sampleRate / baud); //(long)(0.0033 * 44100);
             float bitLengthSamplesFrac = sampleRate / baud;
             int effectiveSampleRate = ((int)bitLengthSamples * (int)baud);
@@ -885,6 +885,21 @@ namespace SignalTest
 
             float val = 1f;
 
+            int preambleMode = 0;
+            int[] preamble = new int[]
+            {
+                //1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,
+                //0,0,1,0,0,1,0,1,1,1,0,0,0,0,1,0,0,0,1,0,0,1,0,1,1,1,
+                //0,0,1,0,1,1,0,1,1,1,0,1,1,1,1,0,0,0,1,0,1,1,0,1,1,1,
+                //0,1,0,0,0,0,1,1,1,0,1,1,1,0,1,0,0,1,0,0,0,0,1,1,1,0,
+
+                1,1,1,1,1,0,0,1,1,0,1,0,1
+            };
+            for (int i = 0; i < preamble.Length; i++)
+            {
+                preamble[i] = preamble[i] * 2 - 1;
+            }
+
             // Test generate PSK31-compatible BPSK text signal
             //int[] bits = new int[]
             //{
@@ -913,6 +928,7 @@ namespace SignalTest
             long symbolCount = 0;
             double symbolCountFloat1 = 1;
             double sampleCountFrac = 0f;
+            Stream sBits = File.Create(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_3_bits.pcm32f"));
             using (Stream sOutput = File.Create(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_3_QPSK.pcm32f")))
             {
                 for (int i = 0; i < sampleCount; i++)
@@ -951,9 +967,33 @@ namespace SignalTest
                             //if (preambleCounter > 4)
                             //    preambleCounter = 1;
 
-                            bitI = lastBit == symbols[0] ? symbols[symbols.Length-1] : symbols[0];
-                            bitQ = 1f;
+                            switch (preambleMode)
+                            {
+                                case 0: // Initial phase-reversals
+                                    bitI = lastBit == symbols[0] ? symbols[symbols.Length - 1] : symbols[0];
+                                    bitQ = bitI;
+
+                                    if (symbolCount == blankStartSymbols + preambleSymbols / 2)
+                                        preambleMode = 1;
+                                    break;
+                                case 1: // Training symbols
+                                    bitI = preamble[preambleCounter];
+                                    bitQ = 1f;
+                                    preambleCounter++;
+                                    if (preambleCounter == preamble.Length)
+                                        preambleCounter = 0;
+                                    break;
+                                default:
+                                    break;
+                            }
+                            //bitI = lastBit == symbols[0] ? symbols[symbols.Length-1] : symbols[0];
+                            //bitI = preamble[preambleCounter];
+                            //bitQ = 1f;
                             //bitQ = bitI;
+
+                            //preambleCounter++;
+                            //if (preambleCounter == preamble.Length)
+                            //    preambleCounter = 0;
 
                             lastBit = bitI;
 
@@ -1014,6 +1054,9 @@ namespace SignalTest
                         symbolCount++;
                         symbolCountFloat1 -= 1;
                         val = bitI;
+
+                        sBits.Write(BitConverter.GetBytes(bitI), 0, 4);
+                        sBits.Write(BitConverter.GetBytes(bitQ), 0, 4);
                     }
                     else
                     {
@@ -1120,6 +1163,7 @@ namespace SignalTest
                     }
                 }
             }
+            sBits.Close();
         }
 
         static void RootRaisedCosineTest()
@@ -1795,9 +1839,9 @@ namespace SignalTest
 
         static void DecisionDirected()
         {
-            int sampleRate = 8000;// 11200*1;
-            float baud = 2405f;// 1142f;// 1200f;// 2322;
-            Vco carrier = new Vco(sampleRate, 1505/*1560*/, 50);
+            int sampleRate = 8000;
+            float baud = 1205f; // 1142f;// 1200f;// 2322;
+            Vco carrier = new Vco(sampleRate, 1505 /*1500*//*1560*/, 50);
             RootRaisedCosineFilter rBitI = new RootRaisedCosineFilter(sampleRate, 12, baud, 0.25f);
             RootRaisedCosineFilter rBitQ = new RootRaisedCosineFilter(sampleRate, 12, baud, 0.25f);
             Downsampler ds = new Downsampler(sampleRate);
@@ -1807,18 +1851,29 @@ namespace SignalTest
             Gardner g = new Gardner();
             bool flipFlop = false;
             // It appears that a lower (but not too low!) proportional gain improves performance
-            Integrator intAngle = new Integrator(0.4f, (1f / baud) * 10f);
+            Integrator intAngle = new Integrator(0.2f, (1f / baud) * 10f);
             Integrator intMagnitude = new Integrator(0.1f, (1f / baud) * 20f);
             intMagnitude.SetValue(1f);
 
             //BiQuadraticFilter bandpass = new BiQuadraticFilter(BiQuadraticFilter.Type.LOWPASS, 5000, sampleRate, 0.707);
             AGC agc = new AGC(0.707f, 15f);
+            agc.ClampLevel = 1.5f;
+            agc.EnableClamping = true;
 
             Integrator intRatio = new Integrator(0.1f, (1f / (baud*2)) * 2f);
             intRatio.SetValue(((baud * 2) / sampleRate));
             //intRatio.Preload(baud * 2);
 
-            float ratioScale = 0.048768f;// 0.04064f;// 0.048768f *1f;// 0.00127f *3;///*0.00031496f*4;*/// 0.0052542f * (1f / sampleRate) / 0.00002083f;
+            //carrier.SetPhaseOffset(0, -Math.PI / 4f);
+
+            float ratioScale = 0.048768f/2f;// 0.04064f;// 0.048768f *1f;// 0.00127f *3;///*0.00031496f*4;*/// 0.0052542f * (1f / sampleRate) / 0.00002083f;
+
+            ChannelEqualizer equalizer = new ChannelEqualizer(14);
+            equalizer.AdaptRate = 0.5f;
+            //equalizer.SetCoefficients(
+            //    new float[] { 0.7854f, 0.1590f, -0.0166f, -0.0616f, 0.0702f, 0.0264f, -0.0375f, 0.0009f, 0.0334f, -0.0092f },
+            //    new float[] { -0.0754f, -0.0194f, 0.0454f, -0.0249f, -0.0141f, 0.0579f, 0.0174f, -0.0365f, -0.0022f, 0.0086f }
+            //    );
 
 
             float bitOutI = 0f;
@@ -1844,6 +1899,25 @@ namespace SignalTest
             long symbolCount = 0;
             float phaseAngleDiff = 0f;
 
+            float[] trainI = new float[400];
+            float[] trainQ = new float[400];
+
+            for (int i = 0; i < trainI.Length; i++)
+            {
+                trainI[i] = i % 2 == 0 ? -1f : 1f;
+                trainQ[i] = 1f;
+            }
+            int trainIndex = 0;
+
+            int[] preamble = new int[]
+            {
+                1,1,1,1,1,0,0,1,1,0,1,0,1,
+            };
+            for (int i = 0; i < preamble.Length; i++)
+            {
+                preamble[i] = preamble[i] * 2 - 1;
+            }
+
             using (Stream fs = File.Create(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_1.pcm32f")))
             {
                 using (Stream fs2 = File.Create(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_1_full.pcm32f")))
@@ -1865,14 +1939,6 @@ namespace SignalTest
                         {
                             fsIn.Read(sampleBuffer, 0, 4 * 1);
                             float sample = BitConverter.ToSingle(sampleBuffer, 0);
-                            //float sample22 = BitConverter.ToSingle(sampleBuffer, 4);
-                            //sample = (float)bandpass.filter(sample);
-                            //sample *= 2f;
-
-                            // Initial pre-processing AGC
-                            //sample = Math.Max(Math.Min(agc.Process(sample), 1f), -1f);
-                            //sample = agc.Process(sample);
-
 
                             carrier.Next();
 
@@ -1880,55 +1946,35 @@ namespace SignalTest
                             float inphase = sample * (float)carrier.Cos();
                             float quadrature = sample * -(float)carrier.Sin();
 
-                            //inphase = sample * 1.0f;
-                            //quadrature = sample22 * 1.0f;
-
-                            //inphase = (float)bandpass.filter(inphase);
-                            //quadrature = (float)bandpass2.filter(quadrature);
-
                             float iFilter = rBitI.Process(inphase) / rBitI.DCGain;
                             float qFilter = rBitQ.Process(quadrature) / rBitQ.DCGain;
-                            //iFilter *= 4.8f;
-                            //qFilter *= 4.8f;
-                            //iFilter *= 4.5f;
-                            //qFilter *= 4.5f;
-                            //iFilter *= 4.6f;
-                            //qFilter *= 4.6f;
 
-                            //iFilter = (float)fBitI.filter(inphase);
-                            //qFilter = (float)fBitQ.filter(quadrature);
+                            //iFilter *= 0.5f;
+                            //qFilter *= 0.5f;
 
-                            //iFilter = sample;
-                            //qFilter = sample22;
-
-                            //iFilter *= 3.8f;
-                            //qFilter *= 3.8f;
-
-
-                            //agc.Process((Math.Abs(iFilter) + Math.Abs(qFilter)) / 2f);
-                            //agc.Process(Math.Max(Math.Abs(iFilter), Math.Abs(qFilter)));
-                            //iFilter *= Math.Min(agc.LastGain, 5);
-                            //qFilter *= Math.Min(agc.LastGain, 5);
+                            // Run AGC
                             agc.ProcessDual(ref iFilter, ref qFilter);
 
+                            //equalizer.AddData(iFilter, qFilter);
+                            //equalizer.Process(out iFilter, out qFilter);
 
                             // Timing recovery
                             dsQ.Next();
                             if (ds.Next())
                             {
-                                // Apply fine AGC before running error detector
                                 bitOutI = ds.GetSample();
                                 bitOutQ = dsQ.GetSample();
 
-                                bitOutI *= constGain * 0.707f;
-                                bitOutQ *= constGain * 0.707f;
+                                bitOutI *= constGain;
+                                bitOutQ *= constGain;
 
+                                // Run equalizer
+                                equalizer.AddData(bitOutI, bitOutQ);
+                                equalizer.Process(out bitOutI, out bitOutQ);
+
+                                // Calculate timing error
                                 float error = g.Process(bitOutI, bitOutQ);
-                                float ratio = ((baud * 2) / sampleRate);// + (/*0.1373201673f*/ /*0.01625f*/ /*0.00542f*/ /*0.0325f*/ ratioScale * error);
-
-                                ratio = intRatio.Process(error * ratioScale * 1f);
-                                //ratio = intRatio.Process(error * 25f);// * ratioScale * 1f);
-                                //ratio /= sampleRate;
+                                float ratio = intRatio.Process(error * ratioScale);
 
                                 ratio = Math.Max(ratio, 0.001f);
                                 Console.WriteLine("R {0:F6} {1,7:F2} {2,7:F2} {3,10:F7}", ratio, sampleRate * ratio * 0.5f, carrier.GetFrequency(0), error);
@@ -1941,15 +1987,6 @@ namespace SignalTest
 
                                 if (flipFlop ^= true)
                                 {
-
-                                    //bitOutI = Math.Max(Math.Min(bitOutI, 1.2f), -1.2f);
-                                    //bitOutQ = Math.Max(Math.Min(bitOutQ, 1.2f), -1.2f);
-
-                                    //bitOutI = SoftLimit(bitOutI);
-                                    //bitOutQ = SoftLimit(bitOutQ);
-
-
-
                                     // Find the closest constellation point
                                     Constellation.Point constPt;
                                     if (isSyncMode)
@@ -1960,11 +1997,35 @@ namespace SignalTest
                                     Console.WriteLine("C {0,5:F2} {1,5:F2}", constPt.I, constPt.Q);
                                     Console.WriteLine("G {0,5:F2}", agc.LastGain);
 
+                                    // Estimate channel with training symbols
+                                    if (symbolCount >= 271 && symbolCount <= 500)
+                                    {
+                                        equalizer.Update(preamble[trainIndex], 1f);
+                                        //equalizer.Update(1f, -preamble[trainIndex]);
+                                        trainIndex++;
+                                        if (trainIndex == preamble.Length)
+                                            trainIndex = 0;
+                                    }
+                                    else
+                                    //if (symbolCount > 270)
+                                    //equalizer.Process(out bitOutI, out bitOutQ);
+
+                                    if (symbolCount > 500)
+                                    //if (symbolCount > 800)
+                                    //if (symbolCount > 1300)
+                                    {
+                                        equalizer.Update((float)constPt.I, (float)constPt.Q);
+                                    }
+                                    equalizer.DumpCoeff();
+
+                                    //equalizer.Update((float)constPt.I, (float)constPt.Q);
+                                    //equalizer.DumpCoeff();
+
                                     //if (i >= 19000)
                                     //    Debugger.Break();
 
-                                    double curAngle = Math.Atan2(bitOutQ, bitOutI);
-                                    double constAngle = Math.Atan2(constPt.Q, constPt.I);
+                                    //double curAngle = Math.Atan2(bitOutQ, bitOutI);
+                                    //double constAngle = Math.Atan2(constPt.Q, constPt.I);
 
                                     double curMag = Math.Sqrt((bitOutI * bitOutI) + (bitOutQ * bitOutQ));
                                     double constMag = Math.Sqrt((constPt.I * constPt.I) + (constPt.Q * constPt.Q));
@@ -1978,12 +2039,15 @@ namespace SignalTest
                                     double phaseAngle = Math.Atan2(tempY, tempX);
 
 
-                                    constGain = intMagnitude.Process((float)(magDiff));
-                                    //constGain = 1.29f;
+                                    //constGain = intMagnitude.Process((float)(magDiff));
+                                    //constGain = 1.53f;
                                     if (constGain < 0.01f)
                                         constGain = 0.01f;
                                     if (constGain > 2.0f)
+                                    {
                                         constGain = 2.0f;
+                                        intMagnitude.SetValue(2.0f);
+                                    }
 
 
                                     curMag = Math.Sqrt((bitOutI * bitOutI) + (bitOutQ * bitOutQ));
@@ -2003,20 +2067,29 @@ namespace SignalTest
                                     phaseAngleDiff = (float)phaseAngle;
 
                                     // TODO: Add actual sync/preamble detector
-                                    if (isSyncMode && symbolCount >= 400)
+                                    if (isSyncMode && symbolCount == 260)
+                                    //if (isSyncMode && symbolCount >= 400)
+                                    //if (isSyncMode && symbolCount >= 700)
+                                    //if (isSyncMode && symbolCount >= 1000)
                                     //if (isSyncMode && symbolCount > 10 && avgErr < 0.2f)
                                     //if (isSyncMode && i >= 30000)
                                     {
-                                        isSyncMode = false;
+                                        //isSyncMode = false;
                                         agc.AdaptGain = false;
 
                                         // Once we have a good estimate of carrier offset, only allow small tweaks
                                         //intAngle.IntegratorGain = (1f / baud) * 0.5f;
-                                        intAngle.IntegratorGain *= 0.5f;
+                                        //intAngle.IntegratorGain *= 0.5f;
                                         intAngle.ProportionalGain *= 0.5f;
                                         //intRatio.IntegratorGain *= 0.5f;
                                         //intRatio.ProportionalGain *= 0.5f;
                                         //ratioScale *= 0.5f;
+                                    }
+                                    else if (isSyncMode && symbolCount > 400)
+                                    {
+                                        //agc.AdaptGain = false;
+                                        isSyncMode = false;
+                                        equalizer.AdaptRate *= 0.5f;
                                     }
 
                                     float angleFilter = intAngle.Process((float)phaseAngle);
@@ -2032,7 +2105,9 @@ namespace SignalTest
                                     fs.Write(BitConverter.GetBytes((float)avgErr), 0, 4);
                                     //fs.Write(BitConverter.GetBytes(agc.AverageAmplitude), 0, 4);
                                     //fs.Write(BitConverter.GetBytes(isSyncMode ? 0f : 0.707f), 0, 4);
-                                    fs.Write(BitConverter.GetBytes((float)phaseAngleDiff), 0, 4);
+                                    //fs.Write(BitConverter.GetBytes((float)phaseAngleDiff), 0, 4);
+                                    fs.Write(BitConverter.GetBytes((float)error), 0, 4);
+
                                 }
                             }
                             ds.SupplyInput(iFilter);

@@ -47,6 +47,7 @@
   <ItemGroup>
     <Compile Include="AGC.cs" />
     <Compile Include="BiQuadraticFilter.cs" />
+    <Compile Include="ChannelEqualizer.cs" />
     <Compile Include="Constellation.cs" />
     <Compile Include="Costas.cs" />
     <Compile Include="Downsampler.cs" />
