@@ -21,6 +21,9 @@ namespace SignalTest
 
             //DecimationTest();
 
+            //ScramblerTest();
+            //PseudoRandomTest();
+
             GenerateQPSK();
 
             AWGN();
@@ -888,17 +891,16 @@ namespace SignalTest
             int preambleMode = 0;
             int[] preamble = new int[]
             {
-                //1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,
-                //0,0,1,0,0,1,0,1,1,1,0,0,0,0,1,0,0,0,1,0,0,1,0,1,1,1,
-                //0,0,1,0,1,1,0,1,1,1,0,1,1,1,1,0,0,0,1,0,1,1,0,1,1,1,
-                //0,1,0,0,0,0,1,1,1,0,1,1,1,0,1,0,0,1,0,0,0,0,1,1,1,0,
-
                 1,1,1,1,1,0,0,1,1,0,1,0,1
             };
+            int[] training = new int[200];
             for (int i = 0; i < preamble.Length; i++)
-            {
                 preamble[i] = preamble[i] * 2 - 1;
-            }
+
+            // Pseudo-random training sequence
+            PseudoRandom rTraining = new PseudoRandom(0x40160AC4);
+            for (int i = 0; i < training.Length; i++)
+                training[i] = (int)rTraining.Next(0, 2) * 2 - 1;
 
             // Test generate PSK31-compatible BPSK text signal
             //int[] bits = new int[]
@@ -976,11 +978,21 @@ namespace SignalTest
                                     if (symbolCount == blankStartSymbols + preambleSymbols / 2)
                                         preambleMode = 1;
                                     break;
-                                case 1: // Training symbols
+                                case 1: // Barker start sequence
                                     bitI = preamble[preambleCounter];
                                     bitQ = 1f;
                                     preambleCounter++;
                                     if (preambleCounter == preamble.Length)
+                                    {
+                                        preambleCounter = 0;
+                                        preambleMode = 2;
+                                    }
+                                    break;
+                                case 2: // PRNG training sequence
+                                    bitI = training[preambleCounter];
+                                    bitQ = 1f;
+                                    preambleCounter++;
+                                    if (preambleCounter == training.Length)
                                         preambleCounter = 0;
                                     break;
                                 default:
@@ -1851,7 +1863,7 @@ namespace SignalTest
             Gardner g = new Gardner();
             bool flipFlop = false;
             // It appears that a lower (but not too low!) proportional gain improves performance
-            Integrator intAngle = new Integrator(0.2f, (1f / baud) * 10f);
+            Integrator intAngle = new Integrator(0.2f, (1f / baud) * 5f);
             Integrator intMagnitude = new Integrator(0.1f, (1f / baud) * 20f);
             intMagnitude.SetValue(1f);
 
@@ -1863,8 +1875,6 @@ namespace SignalTest
             Integrator intRatio = new Integrator(0.1f, (1f / (baud*2)) * 2f);
             intRatio.SetValue(((baud * 2) / sampleRate));
             //intRatio.Preload(baud * 2);
-
-            //carrier.SetPhaseOffset(0, -Math.PI / 4f);
 
             float ratioScale = 0.048768f/2f;// 0.04064f;// 0.048768f *1f;// 0.00127f *3;///*0.00031496f*4;*/// 0.0052542f * (1f / sampleRate) / 0.00002083f;
 
@@ -1899,24 +1909,25 @@ namespace SignalTest
             long symbolCount = 0;
             float phaseAngleDiff = 0f;
 
-            float[] trainI = new float[400];
-            float[] trainQ = new float[400];
-
-            for (int i = 0; i < trainI.Length; i++)
-            {
-                trainI[i] = i % 2 == 0 ? -1f : 1f;
-                trainQ[i] = 1f;
-            }
             int trainIndex = 0;
-
             int[] preamble = new int[]
             {
                 1,1,1,1,1,0,0,1,1,0,1,0,1,
             };
+            int[] training = new int[200];
             for (int i = 0; i < preamble.Length; i++)
-            {
                 preamble[i] = preamble[i] * 2 - 1;
-            }
+
+            // Pseudo-random training sequence
+            PseudoRandom rTraining = new PseudoRandom(0x40160AC4);
+            for (int i = 0; i < training.Length; i++)
+                training[i] = (int)rTraining.Next(0, 2) * 2 - 1;
+
+
+            float[] lastSymbolsI = new float[preamble.Length];
+            float[] lastSymbolsQ = new float[preamble.Length];
+            bool isTraining = false;
+            int carrierHold = 0;
 
             using (Stream fs = File.Create(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_1.pcm32f")))
             {
@@ -1997,18 +2008,51 @@ namespace SignalTest
                                     Console.WriteLine("C {0,5:F2} {1,5:F2}", constPt.I, constPt.Q);
                                     Console.WriteLine("G {0,5:F2}", agc.LastGain);
 
-                                    // Estimate channel with training symbols
-                                    if (symbolCount >= 271 && symbolCount <= 500)
+                                    // Cross-correlate to find start sequence
+                                    ShiftArrayLeft(lastSymbolsI, (float)bitOutI);
+                                    ShiftArrayLeft(lastSymbolsQ, (float)bitOutQ);
+                                    float correlSumI = 0f;
+                                    float correlSumQ = 0f;
+                                    for (int p = 0; p < preamble.Length; p++)
                                     {
-                                        equalizer.Update(preamble[trainIndex], 1f);
-                                        //equalizer.Update(1f, -preamble[trainIndex]);
+                                        correlSumI += (preamble[p] * lastSymbolsI[p]);
+                                        correlSumQ += (preamble[p] * lastSymbolsQ[p]);
+                                    }
+
+                                    Console.WriteLine("P {0,5:F2} {1,5:F2}", correlSumI, correlSumQ);
+
+
+                                    // Estimate channel with training symbols
+                                    if (isTraining && symbolCount <= 500)
+                                    {
+                                        Console.WriteLine("T {0,5:F2} {1,5:F2}", training[trainIndex], constPt.I);
+                                        equalizer.Update(training[trainIndex], 1f);
+                                        //equalizer.Update(training[trainIndex], training[trainIndex]);
                                         trainIndex++;
-                                        if (trainIndex == preamble.Length)
+                                        if (trainIndex == training.Length)
                                             trainIndex = 0;
                                     }
                                     else
                                     //if (symbolCount > 270)
                                     //equalizer.Process(out bitOutI, out bitOutQ);
+
+                                    if (!isTraining && (Math.Abs(correlSumI) >= 12 || Math.Abs(correlSumQ) >= 12))
+                                    {
+                                        // We found the start sequence
+                                        isTraining = true;
+
+                                        // Find which rotation the constellation is on
+                                        // Note: There are cases where this doesn't quite work right
+                                        //   In those cases, the equalizer tends to adapt and fix up the error
+                                        if (correlSumI >= 12) // 0 degrees
+                                            carrier.SetPhaseOffset(0, 0);
+                                        else if (correlSumI <= -12) // 180 degrees
+                                            carrier.SetPhaseOffset(0, Math.PI);
+                                        else if (correlSumQ >= 12) // -90 degrees
+                                            carrier.SetPhaseOffset(0, Math.PI / 2);
+                                        else if (correlSumQ <= -12) // +90 degrees
+                                            carrier.SetPhaseOffset(0, -Math.PI / 2);
+                                    }
 
                                     if (symbolCount > 500)
                                     //if (symbolCount > 800)
@@ -2033,13 +2077,15 @@ namespace SignalTest
                                     //magDiff -= (magDiff < 0 ? -1f : 1f) * ((magDiff * magDiff) / 1f);
 
                                     // Calculate phase angle difference
+                                    // Multiplies the input with the conjugate of the decision output
                                     double tempX, tempY;
                                     ComplexMultiply(bitOutI, bitOutQ, constPt.I, -constPt.Q, out tempX, out tempY);
 
-                                    double phaseAngle = Math.Atan2(tempY, tempX);
+                                    // Cap phase angle to the range of -1..+1
+                                    double phaseAngle = Math.Min(Math.Max(Math.Atan2(tempY, tempX), -1), 1);
+                                    
 
-
-                                    //constGain = intMagnitude.Process((float)(magDiff));
+                                    constGain = intMagnitude.Process((float)(magDiff));
                                     //constGain = 1.53f;
                                     if (constGain < 0.01f)
                                         constGain = 0.01f;
@@ -2089,7 +2135,7 @@ namespace SignalTest
                                     {
                                         //agc.AdaptGain = false;
                                         isSyncMode = false;
-                                        equalizer.AdaptRate *= 0.5f;
+                                        equalizer.AdaptRate *= 0.125f;
                                     }
 
                                     float angleFilter = intAngle.Process((float)phaseAngle);
@@ -2106,7 +2152,8 @@ namespace SignalTest
                                     //fs.Write(BitConverter.GetBytes(agc.AverageAmplitude), 0, 4);
                                     //fs.Write(BitConverter.GetBytes(isSyncMode ? 0f : 0.707f), 0, 4);
                                     //fs.Write(BitConverter.GetBytes((float)phaseAngleDiff), 0, 4);
-                                    fs.Write(BitConverter.GetBytes((float)error), 0, 4);
+                                    fs.Write(BitConverter.GetBytes((float)angleFilter), 0, 4);
+                                    //fs.Write(BitConverter.GetBytes((float)error), 0, 4);
 
                                 }
                             }
@@ -2195,6 +2242,56 @@ namespace SignalTest
                             fsOut.Write(BitConverter.GetBytes(sampleQ), 0, 4);
                         }
                     }
+                }
+            }
+        }
+
+        static void ScramblerTest()
+        {
+            Random r = new Random(31);
+
+            // Set descrambler state to zero to demonstrate the self-synchronizing
+            //   ability of the scrambler
+            Scrambler scramble = new Scrambler(false);
+            Scrambler descramble = new Scrambler(true, 0);
+            PseudoRandom prng = new PseudoRandom(17);
+
+            for (int i = 0; i < 1000; i++)
+            {
+                int sInput = (int)prng.Next(0,2);//r.Next(0, 2);
+
+                // Multiplicative scrambler
+                int sOutput = scramble.Process(sInput);
+
+                int dInput = sOutput;
+
+                // Flip a bit sometimes
+                if (i > 0 && i % 70 == 0)
+                    dInput ^= 1;
+
+                // Multiplicative descrambler
+                int dOutput = descramble.Process(dInput);
+
+                if (dOutput == sInput)
+                    Console.ForegroundColor = ConsoleColor.Green;
+                else
+                    Console.ForegroundColor = ConsoleColor.Red;
+
+                Console.WriteLine("{0} {1} {2} {3}", sInput, sOutput, dInput, dOutput);
+            }
+        }
+
+        static void PseudoRandomTest()
+        {
+            PseudoRandom prng = new PseudoRandom(17);
+            using (Stream fs = File.Create(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_rng.pcm32f")))
+            {
+                for (int i = 0; i < 10000; i++)
+                {
+                    int val = (int)prng.Next();
+                    Console.WriteLine("{0,16:F0}", val);
+
+                    fs.Write(BitConverter.GetBytes((val / (float)int.MaxValue)), 0, 4);
                 }
             }
         }

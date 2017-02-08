@@ -55,7 +55,9 @@
     <Compile Include="Integrator.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="PseudoRandom.cs" />
     <Compile Include="RootRaisedCosineFilter.cs" />
+    <Compile Include="Scrambler.cs" />
     <Compile Include="Vco.cs" />
   </ItemGroup>
   <ItemGroup>
