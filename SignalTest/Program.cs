@@ -12,6 +12,8 @@ namespace SignalTest
 {
     class Program
     {
+        public static readonly string RootDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "SignalTest");
+
         static void Main(string[] args)
         {
             //SineTest();
@@ -820,12 +822,13 @@ namespace SignalTest
             Vco vco = new Vco(sampleRate, 1500/*375+(150*3)*/, 50);
             Random r = new Random(11);
             Random rNoise = new Random(27);
+            PseudoRandom rData = new PseudoRandom(33);
 
-            long totalSymbols = 3000;
+            long totalSymbols = 4000;
             long preambleSymbols = 500;
             long postambleSymbols = 100;
             long blankStartSymbols = 0;
-            float baud = 1200f;// 1142;// 1200;// 31.25;
+            float baud = 2400f;// 1142;// 1200;// 31.25;
             float bitLengthSamples = (sampleRate / baud); //(long)(0.0033 * 44100);
             float bitLengthSamplesFrac = sampleRate / baud;
             int effectiveSampleRate = ((int)bitLengthSamples * (int)baud);
@@ -874,17 +877,50 @@ namespace SignalTest
             RootRaisedCosineFilter rBitQ = new RootRaisedCosineFilter(effectiveSampleRate, 12, baud, 0.25f);
 
             int ampDiv = 1;
-            int symbolsPerAxis = 4;
+            int symbolsPerAxis = 8;
 
-            float[] symbols = new float[symbolsPerAxis];
+            //float[] symbols = new float[symbolsPerAxis];
 
-            float stepPerSymbol = 2f / (symbolsPerAxis - 1);
-            float step = -1f;
+            //float stepPerSymbol = 2f / (symbolsPerAxis - 1);
+            //float step = -1f;
+            //for (int i = 0; i < symbolsPerAxis; i++)
+            //{
+            //    symbols[i] = step;
+            //    step += stepPerSymbol;
+            //}
+
+            Constellation constellation = Constellation.CreateSquare(symbolsPerAxis);
+
+            // Gray-code map points in a zig-zag pattern
+            bool mapForward = true;
             for (int i = 0; i < symbolsPerAxis; i++)
             {
-                symbols[i] = step;
-                step += stepPerSymbol;
+                if (mapForward)
+                {
+                    for (int q = 0; q < symbolsPerAxis; q++)
+                    {
+                        int cVal = Constellation.BinaryToGray((i * symbolsPerAxis + q));
+                        constellation.Points[i * symbolsPerAxis + q].Value = cVal;
+                        //Console.WriteLine("{0,6}", IntToBinary(cVal, 6));
+                    }
+                }
+                else
+                {
+                    for (int q = symbolsPerAxis - 1; q >= 0; q--)
+                    {
+                        //int cVal = Constellation.BinaryToGray(((i * symbolsPerAxis) + (symbolsPerAxis - q - 1)));
+                        int cVal = Constellation.BinaryToGray((i * symbolsPerAxis + q));
+                        constellation.Points[i * symbolsPerAxis + q].Value = cVal;
+                        //Console.WriteLine("{0,6}", IntToBinary(cVal, 6));
+                    }
+                }
+
+                mapForward = !mapForward;
             }
+            constellation.RotateDegrees(0);
+            //constellation.Scale(0.707);
+
+            constellation.PrepareGeneration();
 
             float val = 1f;
 
@@ -972,7 +1008,7 @@ namespace SignalTest
                             switch (preambleMode)
                             {
                                 case 0: // Initial phase-reversals
-                                    bitI = lastBit == symbols[0] ? symbols[symbols.Length - 1] : symbols[0];
+                                    bitI = lastBit == -1 ? 1 : -1;
                                     bitQ = bitI;
 
                                     if (symbolCount == blankStartSymbols + preambleSymbols / 2)
@@ -993,6 +1029,20 @@ namespace SignalTest
                                     bitQ = 1f;
                                     preambleCounter++;
                                     if (preambleCounter == training.Length)
+                                    {
+                                        preambleCounter = 0;
+                                    }
+                                    if (symbolCount >= (preambleSymbols + blankStartSymbols) - preamble.Length)
+                                    {
+                                        preambleMode = 3;
+                                        preambleCounter = 0;
+                                    }
+                                    break;
+                                case 3: // Barker end sequence
+                                    bitI = preamble[preambleCounter];
+                                    bitQ = 1f;
+                                    preambleCounter++;
+                                    if (preambleCounter == preamble.Length)
                                         preambleCounter = 0;
                                     break;
                                 default:
@@ -1051,12 +1101,22 @@ namespace SignalTest
                             //bitI = symbols[r.Next(16)];
                             //bitQ = symbols[r.Next(16)];
 
+                            int value = (int)rData.Next(0, symbolsPerAxis * symbolsPerAxis);
+
+                            Constellation.Point pt;
+                            if (!constellation.MapValue(value, out pt))
+                            {
+                                // Uhh...
+                            }
+
                             // M-QAM (square) signals
                             // For cross-QAM, if the point results in a corner, re-roll
                             //do
                             //{
-                            bitI = symbols[r.Next(symbolsPerAxis)];
-                            bitQ = symbols[r.Next(symbolsPerAxis)];
+                            //bitI = symbols[r.Next(symbolsPerAxis)];
+                            //bitQ = symbols[r.Next(symbolsPerAxis)];
+                            bitI = (float)pt.I;
+                            bitQ = (float)pt.Q;
                             //} while (Math.Abs(bitI) == 1 && Math.Abs(bitQ) == 1); // 32-QAM
                             //} while (Math.Abs(bitI) >= 0.80 && Math.Abs(bitQ) >= 0.80); // 128-QAM
 
@@ -1670,7 +1730,7 @@ namespace SignalTest
             // 18.0 dB @ 16000Hz
             // 21.0 dB @  8000Hz
             int sampleRate = 8000;
-            double snrDbBase = 30.0f;
+            double snrDbBase = 28.0f;
             double snrDb = 10.0 * Math.Log10((1.0 / sampleRate) * (Math.Pow(10, snrDbBase / 10.0)) / (1.0 / 8000));
             double snrLin = (float)Math.Pow(10, (snrDb / 10.0));
 
@@ -1720,7 +1780,7 @@ namespace SignalTest
         static void Costas3()
         {
             float baud = 1400f;// 31.25f;
-            Costas c = new SignalTest.Costas(44100, 1355);
+            Costas c = new SignalTest.Costas(44100, 1355, SignalTest.Costas.LoopType.QPSK);
             c.ArmFilterHz = baud;
 
             using (Stream fs = File.Create(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "SignalTest", "SignalTest_1.pcm32f")))
@@ -1852,7 +1912,7 @@ namespace SignalTest
         static void DecisionDirected()
         {
             int sampleRate = 8000;
-            float baud = 1205f; // 1142f;// 1200f;// 2322;
+            float baud = 2405f; // 1142f;// 1200f;// 2322;
             Vco carrier = new Vco(sampleRate, 1505 /*1500*//*1560*/, 50);
             RootRaisedCosineFilter rBitI = new RootRaisedCosineFilter(sampleRate, 12, baud, 0.25f);
             RootRaisedCosineFilter rBitQ = new RootRaisedCosineFilter(sampleRate, 12, baud, 0.25f);
@@ -1863,7 +1923,7 @@ namespace SignalTest
             Gardner g = new Gardner();
             bool flipFlop = false;
             // It appears that a lower (but not too low!) proportional gain improves performance
-            Integrator intAngle = new Integrator(0.2f, (1f / baud) * 5f);
+            Integrator intAngle = new Integrator(0.5f, (1f / baud) * 20f);
             Integrator intMagnitude = new Integrator(0.1f, (1f / baud) * 20f);
             intMagnitude.SetValue(1f);
 
@@ -1876,7 +1936,7 @@ namespace SignalTest
             intRatio.SetValue(((baud * 2) / sampleRate));
             //intRatio.Preload(baud * 2);
 
-            float ratioScale = 0.048768f/2f;// 0.04064f;// 0.048768f *1f;// 0.00127f *3;///*0.00031496f*4;*/// 0.0052542f * (1f / sampleRate) / 0.00002083f;
+            float ratioScale = 0.01016f * 4f;/*0.048768f/2f;*/// 0.04064f;// 0.048768f *1f;// 0.00127f *3;///*0.00031496f*4;*/// 0.0052542f * (1f / sampleRate) / 0.00002083f;
 
             ChannelEqualizer equalizer = new ChannelEqualizer(14);
             equalizer.AdaptRate = 0.5f;
@@ -1899,9 +1959,42 @@ namespace SignalTest
             //  256-QAM: 16
             //  512-QAM: 24
             // 1024-QAM: 32
-            Constellation constellation = Constellation.CreateSquare(4);
+            int symbolsPerAxis = 8;
+            Constellation constellation = Constellation.CreateSquare(symbolsPerAxis);
             Constellation constellationSync = Constellation.CreateSquare(2);
             bool isSyncMode = true;
+
+            // Gray-code map points in a zig-zag pattern
+            bool mapForward = true;
+            for (int i = 0; i < symbolsPerAxis; i++)
+            {
+                if (mapForward)
+                {
+                    for (int q = 0; q < symbolsPerAxis; q++)
+                    {
+                        int cVal = Constellation.BinaryToGray((i * symbolsPerAxis + q));
+                        constellation.Points[i * symbolsPerAxis + q].Value = cVal;
+                        //Console.WriteLine("{0,6}", IntToBinary(cVal, 6));
+                    }
+                }
+                else
+                {
+                    for (int q = symbolsPerAxis - 1; q >= 0; q--)
+                    {
+                        //int cVal = Constellation.BinaryToGray(((i * symbolsPerAxis) + (symbolsPerAxis - q - 1)));
+                        int cVal = Constellation.BinaryToGray((i * symbolsPerAxis + q));
+                        constellation.Points[i * symbolsPerAxis + q].Value = cVal;
+                        //Console.WriteLine("{0,6}", IntToBinary(cVal, 6));
+                    }
+                }
+
+                mapForward = !mapForward;
+            }
+            constellation.RotateDegrees(0);
+            //constellation.Scale(0.707);
+
+            PseudoRandom rData = new PseudoRandom(33);
+
 
             double avgErr = 0f;
             double lastAvgErr = 0f;
@@ -2005,7 +2098,7 @@ namespace SignalTest
                                     else
                                         constPt = constellation.FindNearestPoint(bitOutI, bitOutQ);
 
-                                    Console.WriteLine("C {0,5:F2} {1,5:F2}", constPt.I, constPt.Q);
+                                    Console.WriteLine("C {0,5:F2} {1,5:F2} {2,3}", constPt.I, constPt.Q, constPt.Value);
                                     Console.WriteLine("G {0,5:F2}", agc.LastGain);
 
                                     // Cross-correlate to find start sequence
@@ -2021,12 +2114,22 @@ namespace SignalTest
 
                                     Console.WriteLine("P {0,5:F2} {1,5:F2}", correlSumI, correlSumQ);
 
+                                    int symDiff = 0;
+                                    if (!isSyncMode && !isTraining)
+                                    {
+                                        int dValue = (int)rData.Next(0, symbolsPerAxis * symbolsPerAxis);
+                                        int cValue = constPt.Value;
+                                        int diff = dValue ^ cValue;
+                                        symDiff = diff;
+                                    }
 
                                     // Estimate channel with training symbols
                                     if (isTraining && symbolCount <= 500)
                                     {
                                         Console.WriteLine("T {0,5:F2} {1,5:F2}", training[trainIndex], constPt.I);
-                                        equalizer.Update(training[trainIndex], 1f);
+                                        // Delay to give time for downsampler FIR buffer to catch up
+                                        if (trainIndex > 7)
+                                            equalizer.Update(training[trainIndex], 1f);
                                         //equalizer.Update(training[trainIndex], training[trainIndex]);
                                         trainIndex++;
                                         if (trainIndex == training.Length)
@@ -2053,6 +2156,14 @@ namespace SignalTest
                                         else if (correlSumQ <= -12) // +90 degrees
                                             carrier.SetPhaseOffset(0, -Math.PI / 2);
                                     }
+                                    else if(isTraining && correlSumI >= 12)
+                                    {
+                                        // End of training
+                                        isTraining = false;
+                                        isSyncMode = false;
+
+                                        equalizer.AdaptRate *= 0.125f;
+                                    }
 
                                     if (symbolCount > 500)
                                     //if (symbolCount > 800)
@@ -2060,7 +2171,7 @@ namespace SignalTest
                                     {
                                         equalizer.Update((float)constPt.I, (float)constPt.Q);
                                     }
-                                    equalizer.DumpCoeff();
+                                    //equalizer.DumpCoeff();
 
                                     //equalizer.Update((float)constPt.I, (float)constPt.Q);
                                     //equalizer.DumpCoeff();
@@ -2083,7 +2194,7 @@ namespace SignalTest
 
                                     // Cap phase angle to the range of -1..+1
                                     double phaseAngle = Math.Min(Math.Max(Math.Atan2(tempY, tempX), -1), 1);
-                                    
+
 
                                     constGain = intMagnitude.Process((float)(magDiff));
                                     //constGain = 1.53f;
@@ -2099,16 +2210,24 @@ namespace SignalTest
                                     curMag = Math.Sqrt((bitOutI * bitOutI) + (bitOutQ * bitOutQ));
                                     Console.WriteLine("M {0,5:F2} {1,5:F2} {2,5:F2}", curMag, constMag, constGain);
 
-                                    // Symbol error rate
+                                    // Symbol distance error
                                     double distI = (bitOutI - constPt.I);
                                     double distQ = (bitOutQ - constPt.Q);
                                     double distance = Math.Sqrt((distI * distI) + (distQ * distQ));
                                     //distance /= 0.09123958466923193863236701446514;
+                                    distance = symDiff == 0 ? 0 : 1;
 
                                     avgErr = (avgErr * 0.95) + (distance * 0.05);
                                     errDeriv = (errDeriv * 0.90) + ((avgErr - lastAvgErr) * 0.10);
                                     lastAvgErr = avgErr;
-                                    Console.WriteLine("E {0,7:F4} {1,7:F4} {2,7:F4}", distance, avgErr, errDeriv);
+
+                                    
+
+                                    Console.WriteLine("E {0,7:F4} {1,7:F4} {2,7:F4} {3,8}", distance, avgErr, errDeriv, IntToBinary(symDiff, symbolsPerAxis));
+                                    if (symDiff != 0 && constPt.I != 1 && constPt.Q != 1)
+                                    {
+
+                                    }
 
                                     phaseAngleDiff = (float)phaseAngle;
 
@@ -2131,12 +2250,12 @@ namespace SignalTest
                                         //intRatio.ProportionalGain *= 0.5f;
                                         //ratioScale *= 0.5f;
                                     }
-                                    else if (isSyncMode && symbolCount > 400)
-                                    {
-                                        //agc.AdaptGain = false;
-                                        isSyncMode = false;
-                                        equalizer.AdaptRate *= 0.125f;
-                                    }
+                                    //else if (isSyncMode && symbolCount >= 400)
+                                    //{
+                                    //    //agc.AdaptGain = false;
+                                    //    //isSyncMode = false;
+                                    //    equalizer.AdaptRate *= 0.125f;
+                                    //}
 
                                     float angleFilter = intAngle.Process((float)phaseAngle);
 
@@ -2294,6 +2413,27 @@ namespace SignalTest
                     fs.Write(BitConverter.GetBytes((val / (float)int.MaxValue)), 0, 4);
                 }
             }
+        }
+
+        static void GrayCodeTest()
+        {
+            for (int i = 0; i < 64; i++)
+            {
+                int gray = Constellation.BinaryToGray(i);
+                Console.WriteLine("{0} {1}  {2,3} {3,3}", IntToBinary(i, 6), IntToBinary(gray, 6),i,gray);
+            }
+        }
+
+        static string IntToBinary(int value, int length)
+        {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < length; i++)
+            {
+                sb.Append((value & (0x01 << (length - 1))) >> (length - 1));
+                value <<= 1;
+            }
+
+            return sb.ToString();
         }
 
         static float SoftLimit(float value)

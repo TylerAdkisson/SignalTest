@@ -8,6 +8,12 @@ namespace SignalTest
 {
     class Costas
     {
+        public enum LoopType
+        {
+            BPSK,
+            QPSK
+        }
+
         private int _sampleRate;
         private Vco _vco;
         private BiQuadraticFilter _iArmFilter;
@@ -20,7 +26,12 @@ namespace SignalTest
         private float _errSample;
         private float _lockSample;
         private BiQuadraticFilter _lockFilter;
-        
+        private Func<float, float, float> _phaseErrorCalculator;
+        private LoopType _loopType;
+        private bool _doFilterOutput;
+        private bool _isTrackingEnabled;
+        private float _errScale;
+
 
         public double CarrierFrequency
         {
@@ -52,10 +63,22 @@ namespace SignalTest
             }
         }
 
-        public float PreportionalGain
+        public float ProportionalGain
         {
             get { return _piPhase.ProportionalGain; }
             set { _piPhase.ProportionalGain = value; }
+        }
+
+        public float IntegrationGain
+        {
+            get { return _piPhase.IntegratorGain; }
+            set { _piPhase.IntegratorGain = value; }
+        }
+
+        public float ErrorScaler
+        {
+            get { return _errScale; }
+            set { _errScale = value; }
         }
 
         public bool IsLocked
@@ -63,8 +86,39 @@ namespace SignalTest
             get { return Math.Abs(_lockSample) <= 0.05f; }
         }
 
+        public bool FilterOutput
+        {
+            get { return _doFilterOutput; }
+            set { _doFilterOutput = value; }
+        }
 
-        public Costas(int sampleRate, float carrierFrequency)
+        public bool IsTrackingEnabled
+        {
+            get { return _isTrackingEnabled; }
+            set { _isTrackingEnabled = value; }
+        }
+
+        public LoopType PhaseErrorAlgorithm
+        {
+            get { return _loopType; }
+            set
+            {
+                _loopType = value;
+                switch (value)
+                {
+                    case LoopType.BPSK:
+                        _phaseErrorCalculator = CalculatePhaseErrorBpsk;
+                        break;
+                    case LoopType.QPSK:
+                        _phaseErrorCalculator = CalculatePhaseErrorQpsk;
+                        break;
+                    default:
+                        throw new NotSupportedException("Invalid loop type");
+                }
+            }
+        }
+
+        public Costas(int sampleRate, float carrierFrequency, LoopType loopType)
         {
             _sampleRate = sampleRate;
             _vco = new Vco(sampleRate, carrierFrequency, 50);
@@ -75,10 +129,16 @@ namespace SignalTest
             _qArmFilter = new BiQuadraticFilter(BiQuadraticFilter.Type.LOWPASS, 63, sampleRate, 0.707);
 
             // Notch filters at 2x carrier frequency
-            _iNotchFilter = new BiQuadraticFilter(BiQuadraticFilter.Type.NOTCH, carrierFrequency * 2, sampleRate, 1.0);
-            _qNotchFilter = new BiQuadraticFilter(BiQuadraticFilter.Type.NOTCH, carrierFrequency * 2, sampleRate, 1.0);
+            _iNotchFilter = new BiQuadraticFilter(BiQuadraticFilter.Type.NOTCH, Math.Min(carrierFrequency * 2, (sampleRate / 2) - 10), sampleRate, 1.0);
+            _qNotchFilter = new BiQuadraticFilter(BiQuadraticFilter.Type.NOTCH, Math.Min(carrierFrequency * 2, (sampleRate / 2) - 10), sampleRate, 1.0);
 
             _piPhase = new Integrator(0.707f, (1f / sampleRate) * 10f);
+
+            _doFilterOutput = true;
+            _isTrackingEnabled = true;
+            _errScale = 1f;
+
+            PhaseErrorAlgorithm = loopType;
         }
 
 
@@ -93,9 +153,13 @@ namespace SignalTest
 
             // TODO: Do we need to clip?  Should be handled by EQ someday
 
-            // Take our demodulated data out before the arm filters
-            _iSample = signalI;
-            _qSample = signalQ;
+            if (!_doFilterOutput)
+            {
+                // Take our demodulated data out before the arm filters
+                _iSample = signalI;
+                _qSample = signalQ;
+            }
+
 
             // Notch out 2x carrier
             signalI = (float)_iNotchFilter.filter(signalI);
@@ -105,13 +169,15 @@ namespace SignalTest
             float phaseI = (float)_iArmFilter.filter(signalI);
             float phaseQ = (float)_qArmFilter.filter(signalQ);
 
+            if (_doFilterOutput)
+            {
+                _iSample = phaseI;
+                _qSample = phaseQ;
+            }
 
-            // To recover the carrier of a QPSK signal, we must multiply the phase
-            //   error of the other arm with the sign of our arm, then subtract I and Q
-            //   errors to get the carrier phase error
-            float phaseMixI = Math.Sign(phaseI) * phaseQ;
-            float phaseMixQ = Math.Sign(phaseQ) * phaseI;
-            float phaseError = phaseMixI - phaseMixQ;
+            // Calculate phase error
+            float phaseError = _phaseErrorCalculator(phaseI, phaseQ);
+            phaseError *= _errScale;
             _errSample = phaseError;
 
             // Low-pass the non-integrated error signal to determine if the loop is locked
@@ -120,7 +186,8 @@ namespace SignalTest
             phaseError = _piPhase.Process(phaseError);
 
             // Tune the VCO to correct the phase and frequency errors
-            _vco.Tune(phaseError);
+            if (_isTrackingEnabled)
+                _vco.Tune(phaseError);
         }
 
         public float Inphase()
@@ -175,6 +242,23 @@ namespace SignalTest
             _errSample = 0f;
 
             _vco.Reset();
+        }
+
+
+        private float CalculatePhaseErrorBpsk(float i, float q)
+        {
+            return i * q;
+        }
+
+        private float CalculatePhaseErrorQpsk(float i, float q)
+        {
+            // To recover the carrier of a QPSK signal, we must multiply the phase
+            //   error of the other arm with the sign of our arm, then subtract I and Q
+            //   errors to get the carrier phase error
+            float phaseMixI = Math.Sign(i) * q;
+            float phaseMixQ = Math.Sign(q) * i;
+            float phaseError = phaseMixI - phaseMixQ;
+            return phaseError;
         }
     }
 }

@@ -85,6 +85,7 @@ namespace SignalTest
             _gainIntegrator = new Integrator(1f, (1f / 44100f) * 1000f);
             _gainIntegrator.SetValue(1.0f);
             _gain = 1.0f;
+            _clampLevel = 1.0f;
         }
 
 
@@ -93,7 +94,7 @@ namespace SignalTest
             // Apply gain
             value *= _gain;
 
-            if (Math.Abs(value) > _clampLevel)
+            if (_isClampEnabled && Math.Abs(value) > _clampLevel)
                 value = Math.Sign(value) * _clampLevel;
 
             ProcessInternal(Math.Abs(value));
@@ -107,9 +108,9 @@ namespace SignalTest
             value1 *= _gain;
             value2 *= _gain;
 
-            if (Math.Abs(value1) > _clampLevel)
+            if (_isClampEnabled && Math.Abs(value1) > _clampLevel)
                 value1 = Math.Sign(value1) * _clampLevel;
-            if (Math.Abs(value2) > _clampLevel)
+            if (_isClampEnabled && Math.Abs(value2) > _clampLevel)
                 value2 = Math.Sign(value2) * _clampLevel;
 
             // Compute average output volume
