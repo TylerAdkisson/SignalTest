@@ -15,7 +15,9 @@ namespace SignalTest
         private float _baudRate;
         private float _alpha;
         private float _dcGain;
+        private float _dcGainInv;
         private bool _clip;
+        private bool _scaleOutput;
 
 
         public int SampleRate
@@ -53,6 +55,12 @@ namespace SignalTest
             set { _clip = value; }
         }
 
+        public bool NormalizeOutput
+        {
+            get { return _scaleOutput; }
+            set { _scaleOutput = value; }
+        }
+
 
         public RootRaisedCosineFilter(int sampleRate, int lengthSymbols, float baudRate, float alpha)
         {
@@ -61,6 +69,7 @@ namespace SignalTest
             _baudRate = baudRate;
             _alpha = alpha;
             _clip = false;
+            _scaleOutput = false;
 
             BuildImpulseResponse();
         }
@@ -76,6 +85,9 @@ namespace SignalTest
                 if (_buffer[i] != 0)
                     result += _buffer[i] * _impulseResponse[i];
             }
+
+            if (_scaleOutput)
+                result *= _dcGainInv;
 
             if (_clip)
             {
@@ -120,6 +132,8 @@ namespace SignalTest
                 _impulseResponse[i] *= scale;
                 _dcGain += _impulseResponse[i];
             }
+
+            _dcGainInv = 1f / _dcGain;
         }
 
         private static float RRCStep(float symbolTime, float alpha)
