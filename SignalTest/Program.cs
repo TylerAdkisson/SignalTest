@@ -12,10 +12,21 @@ namespace SignalTest
 {
     class Program
     {
+        // By default, the root directory for file output is a folder on your desktop named SignalTest
+        // To change this, comment out the the following line and uncomment the line after it
         public static readonly string RootDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "SignalTest");
+        //public static readonly string RootDir = Path.Combine(".", "SignalTest");
 
         static void Main(string[] args)
         {
+            Directory.CreateDirectory(RootDir);
+
+            // Uncomment one to run a QPSK example
+            //Examples.QPSK.NormalQPSK();
+            //Examples.QPSK.OffsetQPSK();
+
+            return;
+
             //SineTest();
             //Costas();
             //PllTest1();
@@ -1581,9 +1592,8 @@ namespace SignalTest
 
         static void Const()
         {
-            //byte[] data = File.ReadAllBytes(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "SignalTest_6_Timing_isolated.pcm32f"));
-            //byte[] data = File.ReadAllBytes(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "SignalTest", "SignalTest_6_Timing.pcm32f"));
-            byte[] data = File.ReadAllBytes(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "SignalTest", "SignalTest_1.pcm32f"));
+            string inputPath = Path.Combine(RootDir, "QPSK", "oqpsk_output_demodulate.8k.2ch.pcm32f");
+            byte[] data = File.ReadAllBytes(inputPath);
             float[] samples = new float[data.Length / 4];
             Buffer.BlockCopy(data, 0, samples, 0, data.Length);
 
@@ -1615,10 +1625,10 @@ namespace SignalTest
             //dc.DrawLine(new Pen(Brushes.Black, 1), new System.Windows.Point(width / 4, 0), new System.Windows.Point(width / 4, height));
             //dc.DrawLine(new Pen(Brushes.Black, 1), new System.Windows.Point(width * 0.75, 0), new System.Windows.Point(width * 0.75, height));
 
-            Constellation constellation = Constellation.CreateSquare(8);
+            Constellation constellation = Constellation.CreateSquare(2);
 
-            //// 16-QAM/4-QAM: 0.5, width / 4
-            //// 64-QAM: 0.66, width / 6
+            // 16-QAM/4-QAM: 0.5, width / 4
+            // 64-QAM: 0.66, width / 6
             //double innerWidth = width * 0.5;
             //double innerHeight = height * 0.5;
             //for (int i = 0; i < constellation.Points.Length; i++)
@@ -1630,15 +1640,20 @@ namespace SignalTest
             //    dc.DrawEllipse(pointBrush, null, new System.Windows.Point((width / 2) + ((width / 2) * ptI), (height / 2) + ((height / 2) * ptQ)), 3, 3);
             //}
 
-            Brush dotBrush = new SolidColorBrush(Color.FromArgb(127, 0, 127, 255));
+            Brush dotBrush = new SolidColorBrush(Color.FromArgb(63, 0, 127, 255));
             Brush dotBrushSync = new SolidColorBrush(Color.FromArgb(127, 255, 0, 0));
             Brush dotBrush2 = new SolidColorBrush(Color.FromArgb(127, 0, 192, 0));
+
+            // Freezing brushes increases performance
+            dotBrush.Freeze();
+            dotBrushSync.Freeze();
+            dotBrush2.Freeze();
 
             Random r = new Random(13);
 
             double maxValue = 0.0;
             int channelOffset = 0;
-            int channels = 4;
+            int channels = 2;
             for (int i = channelOffset; i < samples.Length; i += channels)
             {
                 //if (Math.Abs(samples[i]) > maxValue)
@@ -1657,9 +1672,9 @@ namespace SignalTest
                 //if (Math.Abs(samples[i]) <= (maxValue * 0.05))
                 //    continue;
 
-                double sample = samples[i];// * (1.0 / maxValue);
-                double sample2 = samples[i + 1];// * (1.0 / maxValue);
-                double err = samples[i + 2];
+                double sample = samples[i] * (1.0 / maxValue);
+                double sample2 = samples[i + 1] * (1.0 / maxValue);
+                double err = 0;// samples[i + 2];
                 if (err < 0.1)
                     isLocked = true;
                 else if (isLocked && err > 0.4)
@@ -1679,11 +1694,11 @@ namespace SignalTest
                 y += height / 2;
                 // double y = height / 2;
                 //dc.DrawRectangle(dotBrush, null, new System.Windows.Rect(x, y, 5, 5));
-                if (i < 500 * channels)
-                    dc.DrawEllipse(dotBrushSync, null, new System.Windows.Point(x, y), 2, 2);
-                else if (i > (samples.Length - (500 * channels)) / 2)
-                    dc.DrawEllipse(dotBrush2, null, new System.Windows.Point(x, y), 2, 2);
-                else
+                //if (i < 50 * channels)
+                //    dc.DrawEllipse(dotBrushSync, null, new System.Windows.Point(x, y), 2, 2);
+                //else if (i > (samples.Length - (500 * channels)) / 2)
+                //    dc.DrawEllipse(dotBrush2, null, new System.Windows.Point(x, y), 2, 2);
+                //else
                     dc.DrawEllipse(dotBrush, null, new System.Windows.Point(x, y), 2, 2);
             }
 
@@ -1705,7 +1720,7 @@ namespace SignalTest
             rtb.Render(dv);
 
             PngBitmapEncoder pe = new PngBitmapEncoder();
-            string outputPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "SignalTest", "const.png");
+            string outputPath = inputPath + ".const.png";
             using (FileStream outp = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.Read))
             {
                 pe.Frames.Add(BitmapFrame.Create(rtb));
@@ -2621,7 +2636,7 @@ namespace SignalTest
             return response;
         }
 
-        static void ShiftArrayLeft<T>(T[] array, T newValue)
+        public static void ShiftArrayLeft<T>(T[] array, T newValue)
         {
             for (int i = 1; i < array.Length; i++)
             {

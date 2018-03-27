@@ -54,6 +54,7 @@
     <Compile Include="Constellation.cs" />
     <Compile Include="Costas.cs" />
     <Compile Include="Downsampler.cs" />
+    <Compile Include="Examples\QPSK.cs" />
     <Compile Include="FFT.cs" />
     <Compile Include="Gardner.cs" />
     <Compile Include="Integrator.cs" />
